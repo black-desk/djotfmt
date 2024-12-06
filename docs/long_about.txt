@@ -1,0 +1,6 @@
+A tool to format Djot markup documentation.
+
+If no arguments are specified, it formats the code from standard input and
+writes the result to the standard output. If INPUT(s) are given, it reformats
+the files. If -i is specified together with INPUT(s), the files are edited
+in-place. Otherwise, the result is written to the standard output.

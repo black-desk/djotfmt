@@ -1,0 +1,62 @@
+# djotfmt
+
+::: warning
+This project is under very early stage and not ready for use.
+:::
+
+This is a simple tool to format [Djot][] files.
+
+## Build
+
+``` bash
+cargo build --release
+```
+
+## Test
+
+``` bash
+cargo test --release
+```
+
+## Install
+
+``` bash
+cargo install --path .
+```
+
+## Usage
+
+You can check the usage by running:
+
+``` bash
+cargo run -r -- --help
+```
+
+Or after installing:
+
+``` bash
+djotfmt --help
+```
+
+## Contributing
+
+- [Djot syntax reference](https://htmlpreview.github.io/?https://github.com/jgm/djot/blob/master/doc/syntax.html)
+
+## Bugs
+
+Report bugs to <https://github.com/black-desk/djotfmt/issues/new>.
+
+## Contact
+
+<mailto:me@black-desk.cn>
+
+## Reference
+
+- [djot-rs](https://github.com/matklad/djot-rs)
+- [djot.js](https://github.com/jgm/djot.js/)
+- [djot.lua](https://github.com/jgm/djot.lua/)
+- [djot](https://github.com/jgm/djot/)
+- [jotdown](https://github.com/hellux/jotdown/)
+- [pandoc](https://github.com/jgm/pandoc)
+
+[Djot]: https://djot.net
