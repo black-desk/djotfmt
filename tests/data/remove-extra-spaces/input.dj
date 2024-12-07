@@ -4,4 +4,6 @@ This formatter should remove extra spaces.
 
 ---
 
--    Remove extra spaces in list item
+Remove    extra spaces in normal text.
+
+-   Remove     extra spaces in list item

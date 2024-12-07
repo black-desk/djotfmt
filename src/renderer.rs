@@ -20,12 +20,14 @@ impl jotdown::Render for Renderer {
 
 struct Writer {
     list_bullet_type: Option<jotdown::ListBulletType>,
+    raw: bool,
 }
 
 impl Writer {
     pub fn new() -> Self {
         Self {
             list_bullet_type: None,
+            raw: false,
         }
     }
 
@@ -98,6 +100,7 @@ impl Writer {
                         out.write_str("``` ")?;
                         out.write_str(language)?;
                         out.write_str("\n")?;
+                        self.raw = true;
                     }
                     jotdown::Container::Span => todo!(),
                     jotdown::Container::Link(cow, link_type) => match link_type {
@@ -144,7 +147,10 @@ impl Writer {
                     jotdown::Container::DescriptionTerm => todo!(),
                     jotdown::Container::LinkDefinition { label } => out.write_str("\n")?,
                     jotdown::Container::RawBlock { format } => todo!(),
-                    jotdown::Container::CodeBlock { language: _ } => out.write_str("```\n")?,
+                    jotdown::Container::CodeBlock { language: _ } => {
+                        self.raw = false;
+                        out.write_str("```\n")?;
+                    }
                     jotdown::Container::Span => todo!(),
                     jotdown::Container::Link(cow, link_type) => match link_type {
                         jotdown::LinkType::Span(span_link_type) => {
@@ -181,7 +187,27 @@ impl Writer {
                     jotdown::Container::Emphasis => todo!(),
                     jotdown::Container::Mark => todo!(),
                 },
-                jotdown::Event::Str(cow) => out.write_str(&cow)?,
+                jotdown::Event::Str(cow) => match self.raw {
+                    true => out.write_str(&cow)?,
+                    false => {
+                        let mut space = false;
+                        for char in cow.chars() {
+                            if !char.is_whitespace() {
+                                space = false;
+                                out.write_str(char.to_string().as_str())?;
+                                continue;
+                            }
+
+                            if space {
+                                continue;
+                            }
+
+                            out.write_str(" ")?;
+
+                            space = true;
+                        }
+                    }
+                },
                 jotdown::Event::FootnoteReference(_) => todo!(),
                 jotdown::Event::Symbol(cow) => todo!(),
                 jotdown::Event::LeftSingleQuote => todo!(),
