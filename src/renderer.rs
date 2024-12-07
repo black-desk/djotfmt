@@ -1,5 +1,23 @@
 pub struct Renderer {}
 
+impl Renderer {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl jotdown::Render for Renderer {
+    fn push<'s, I, W>(&self, events: I, mut out: W) -> std::fmt::Result
+    where
+        I: Iterator<Item = jotdown::Event<'s>>,
+        W: std::fmt::Write,
+    {
+        let mut writer = Writer::new();
+        writer.push(events, &mut out)?;
+        Ok(())
+    }
+}
+
 struct Writer {
     list_bullet_type: Option<jotdown::ListBulletType>,
 }
@@ -219,20 +237,3 @@ impl Writer {
     }
 }
 
-impl Renderer {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl jotdown::Render for Renderer {
-    fn push<'s, I, W>(&self, events: I, mut out: W) -> std::fmt::Result
-    where
-        I: Iterator<Item = jotdown::Event<'s>>,
-        W: std::fmt::Write,
-    {
-        let mut writer = Writer::new();
-        writer.push(events, &mut out)?;
-        Ok(())
-    }
-}
