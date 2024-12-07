@@ -1,0 +1,17 @@
+{% vim: set ft=djot: %}
+
+`djotfmt` remove strip multiple blank lines before and after heading to
+one.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+### There should be only one blank line below this level 3 heading
+
+
+
+##### Level 5 heading
+
+
+
+
+## There should be only one blank line above this level 2 heading

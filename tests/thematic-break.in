@@ -1,0 +1,25 @@
+{% vim:set ft=djot: %}
+
+`djotfmt` format thematic break (horizontal rule) as `* ` sequence.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+This is a thematic break:
+
+---
+
+This is a thematic break in a block quote:
+
+> ---
+
+This is a thematic break in a list in a block quote:
+
+> - a
+>
+>   1. b
+>
+>      ---
+
+This is a thematic break will overflow after formatting:
+
+> > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > ---

@@ -1,0 +1,9 @@
+{% vim: set ft=djot: %}
+
+`djotfmt` always make sure there is one blank line after heading.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+## This is a level 2 heading
+# A blank line should be inserted above this level 1 heading
+### Another blank line should be inserted above this level 3 heading

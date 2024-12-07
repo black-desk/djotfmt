@@ -1,0 +1,21 @@
+{% vim:set ft=djot: %}
+
+`djotfmt` keep all content in code block as it is.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+```
+Some   random
+text with  multiple spaces    and
+
+
+empty
+
+
+
+lines    in
+
+
+
+between.
+```

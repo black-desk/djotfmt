@@ -1,5 +1,3 @@
-use jotdown::Render;
-
 mod cli;
 
 fn main() -> std::io::Result<()> {
@@ -56,11 +54,11 @@ fn main() -> std::io::Result<()> {
 
         log::trace!("Start render file");
 
-        djotfmt::Renderer::new()
-            .push_offset(
-                jotdown::Parser::new(std::fs::read_to_string(file.clone())?.as_str()).into_offset_iter(),
-                output,
-            )
+        let input = std::fs::read_to_string(file.clone())?;
+        let input = input.as_str();
+
+        djotfmt::Renderer::new(input)
+            .push_offset(jotdown::Parser::new(input).into_offset_iter(), output)
             .unwrap();
 
         log::trace!("File rendered");

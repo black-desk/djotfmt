@@ -1,0 +1,11 @@
+{% vim: set ft=djot: %}
+
+`djotfmt` indent multiple lines of heading text to align with the first
+non-space character of the first line.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+### This is a very long long long long long long long long long long
+    long long long long long long long long long long long long long
+    long long long long long long long long long heading that should be
+    wrapped to multiple lines
