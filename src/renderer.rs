@@ -196,7 +196,9 @@ impl Writer {
                 jotdown::Event::Hardbreak => todo!(),
                 jotdown::Event::Escape => todo!(),
                 jotdown::Event::Blankline => out.write_str("\n")?,
-                jotdown::Event::ThematicBreak(attributes) => todo!(),
+                jotdown::Event::ThematicBreak(attributes) => {
+                    out.write_str("---\n")?;
+                }
                 jotdown::Event::Attributes(attributes) => {
                     out.write_str("{")?;
                     for (k, v) in attributes {
@@ -222,7 +224,7 @@ impl Writer {
                         match k {
                             jotdown::AttributeKind::Class => (),
                             jotdown::AttributeKind::Id => (),
-                            jotdown::AttributeKind::Pair { key:_ } => (),
+                            jotdown::AttributeKind::Pair { key: _ } => (),
                             jotdown::AttributeKind::Comment => {
                                 out.write_str("%")?;
                             }
@@ -236,4 +238,3 @@ impl Writer {
         Ok(())
     }
 }
-
