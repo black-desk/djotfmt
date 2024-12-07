@@ -8,7 +8,7 @@
 This project is under very early stage and not ready for use.
 :::
 
-This is a simple tool to format [Djot][] files.
+This is a simple tool written in `rust` to format [Djot][] files.
 
 ## Build
 

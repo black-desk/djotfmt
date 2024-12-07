@@ -113,7 +113,10 @@ impl Writer {
                         jotdown::LinkType::Email => out.write_str("<")?,
                     },
                     jotdown::Container::Image(cow, span_link_type) => out.write_str("![")?,
-                    jotdown::Container::Verbatim => todo!(),
+                    jotdown::Container::Verbatim => {
+                        out.write_str("`")?;
+                        self.raw = true;
+                    }
                     jotdown::Container::Math { display } => todo!(),
                     jotdown::Container::RawInline { format } => todo!(),
                     jotdown::Container::Subscript => todo!(),
@@ -176,7 +179,10 @@ impl Writer {
                         out.write_str(&cow)?;
                         out.write_str(")")?;
                     }
-                    jotdown::Container::Verbatim => todo!(),
+                    jotdown::Container::Verbatim => {
+                        self.raw = false;
+                        out.write_str("`")?;
+                    },
                     jotdown::Container::Math { display } => todo!(),
                     jotdown::Container::RawInline { format } => todo!(),
                     jotdown::Container::Subscript => todo!(),
