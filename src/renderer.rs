@@ -179,7 +179,39 @@ impl Writer {
                 jotdown::Event::Escape => todo!(),
                 jotdown::Event::Blankline => out.write_str("\n")?,
                 jotdown::Event::ThematicBreak(attributes) => todo!(),
-                jotdown::Event::Attributes(attributes) => todo!(),
+                jotdown::Event::Attributes(attributes) => {
+                    out.write_str("{")?;
+                    for (k, v) in attributes {
+                        match k {
+                            jotdown::AttributeKind::Class => {
+                                out.write_str(" .")?;
+                            }
+                            jotdown::AttributeKind::Id => {
+                                out.write_str(" #")?;
+                            }
+                            jotdown::AttributeKind::Pair { key } => {
+                                out.write_str(" ")?;
+                                out.write_str(key)?;
+                                out.write_str("=")?;
+                            }
+                            jotdown::AttributeKind::Comment => {
+                                out.write_str("%")?;
+                            }
+                        }
+                        for part in v.parts() {
+                            out.write_str(part)?;
+                        }
+                        match k {
+                            jotdown::AttributeKind::Class => (),
+                            jotdown::AttributeKind::Id => (),
+                            jotdown::AttributeKind::Pair { key:_ } => (),
+                            jotdown::AttributeKind::Comment => {
+                                out.write_str("%")?;
+                            }
+                        }
+                    }
+                    out.write_str("}\n")?;
+                }
             }
         }
         log::trace!("Events rendered");

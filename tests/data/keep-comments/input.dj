@@ -1,0 +1,9 @@
+# Keep comments
+
+Unlike djot.js, this formatter keep comments in the output file.
+
+## Test
+
+{% Some comment %}
+
+Normal text
