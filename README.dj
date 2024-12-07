@@ -5,10 +5,15 @@
 {% View HTML README here: https://black-desk.github.io/djot-html-preview/?url=https://github.com/black-desk/djotfmt/blob/master/README.dj %}
 
 ::: warning
-This project is under very early stage and not ready for use.
+
+{*This project is under very early stage and not ready for use.*}
+
 :::
 
-This is a simple tool written in `rust` to format [Djot][] files.
+This project is a [`djot`][djot] formatter written in Rust.
+
+[djot]:
+  https://djot.net
 
 ## Build
 
@@ -44,7 +49,8 @@ djotfmt --help
 
 ## Contributing
 
-- [Djot syntax reference](https://htmlpreview.github.io/?https://github.com/jgm/djot/blob/master/doc/syntax.html)
+- [Djot syntax reference](https://htmlpreview.github.io/?https://github.
+  com/jgm/djot/blob/master/doc/syntax.html)
 
 ## Bugs
 
@@ -63,4 +69,5 @@ Report bugs to <https://github.com/black-desk/djotfmt/issues/new>.
 - [jotdown](https://github.com/hellux/jotdown/)
 - [pandoc](https://github.com/jgm/pandoc)
 
-[Djot]: https://djot.net
+[Djot]:
+  https://djot.net

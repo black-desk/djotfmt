@@ -1,0 +1,385 @@
+# Syntax reference
+
+This file contains some `djot` source modified from the examples in
+[the syntax reference](https://djot.net/syntax) to make sure `djotfmt`
+can parse `djot` correctly.
+
+This input file has been formatted by `djotfmt` and can also use to
+check the default formatting configuration.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{_This is *regular_} not strong* emphasis
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{*This is _strong*} not regular_ emphasis
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+[Link *](url)*
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{*Emphasis [*}](url)
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{_This is {*strong within*} regular emphasis_}
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{_Emphasized_}
+_}not emphasized{_
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+[My link text](http://example.com)
+
+[My link text](http://example.com?product_number=23423423423423423423423
+4)
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+[My link text][foo bar]
+
+[foo bar]:
+  http://example.com
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+[foo][bar]
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+[My link text][]
+
+[My link text]:
+  /url
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+![picture of a cat](cat.jpg)
+
+![picture of a cat][cat]
+
+![cat][]
+
+[cat]:
+  feline.jpg
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+<https://pandoc.org/lua-filters>
+<mailto:me@example.com>
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+``Verbatim with a backtick` character``
+`Verbatim with three backticks ``` character`
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+`` `foo` ``
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+`foo bar`
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{_emphasized text_}
+
+{*strong emphasis*}
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+_ Not emphasized (spaces). _
+
+___ (not an emphasized `_` character)
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{_{_emphasis inside_} emphasis_}
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{_ this is emphasized, despite the spaces! _}
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+This is {=highlighted text=}.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+H{~2~}O and djot{^TM^}
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+H{~one two buckle my shoe~}O
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+My boss is {-mean-}{+nice+}.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+"Hello," said the spider.
+"'Shelob' is my name."
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+'}Tis Socrates' season to be jolly!
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+5\'11\"
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+57--33 oxen---and no sheep...
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+a----b c------d
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+Einstein derived $`e=mc^2`.
+Pythagoras proved
+$$` x^n + y^n = z^z `
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+Here is the reference.[^foo]
+
+[^foo]:
+  And here is the note.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+This is a soft
+break and this is a hard\
+break.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{#ident % later we'll add a class %}
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+Foo bar {% This is a comment, spanning
+multiple lines %} baz.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+My reaction is :+1: :smiley:.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+This is `<?php echo 'Hello world!' ?>`{=html}.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+It can be helpful to [read the manual]{.big .red}.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+An attribute on _emphasized text_{#foo
+.bar .baz key="my value"}
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+avant{lang=fr}{.blue}
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+avant{lang=fr .blue}
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+## A level {_two_} heading!
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+# A very long long long long long long long long long long long long
+  long long long long long long long long long long long long long long
+  heading that takes up three lines
+
+A paragraph, finally.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+### Heading ###
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+> This is a block quote.
+>
+> 1. with a
+> 2. list in it.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+1. This is a
+   list item.
+
+   > containing a block quote
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+1. This is a
+   list item.
+
+   Second paragraph under the
+   list item.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+: orange
+
+  A citrus fruit.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+i) one
+i. one (style change)
++ bullet
+* bullet (style change)
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+i. item
+j. next item
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+5) five
+6) six
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+- one
+- two
+
+  - sub
+  - sub
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+- one
+
+- two
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+````
+This is how you do a code block:
+
+``` ruby
+x = 5 * 6
+```
+````
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+> ``` 
+> code in a
+> block quote
+> ```
+
+Paragraph.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+Then they went to sleep.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+When they woke up, ...
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+``` =html
+<video width="320" height="240" controls>
+  <source src="movie.mp4" type="video/mp4">
+  <source src="movie.ogg" type="video/ogg">
+  Your browser does not support the video tag.
+</video>
+```
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+::: warning
+
+Here is a paragraph.
+
+And here is another.
+
+:::
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+| a  |  b |
+|----|:--:|
+| 1  | 2  |
+|:---|---:|
+| 3  | 4  |
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+|:--|---:|
+| x | 2  |
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+| just two \| `|` | cells in this table |
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+[google]:
+  https://google.com
+
+[product page]:
+  http://example.com?item=9834598730871203948701283700981234098123048172
+  304
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{title=foo}
+[ref]:
+  /url
+
+[ref][]
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{title=foo}
+[ref]:
+  /url
+
+[ref][]{title=bar}
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+Here's the reference.[^foo]
+
+[^foo]:
+  This is a note
+  with two paragraphs.
+
+  Second paragraph.
+
+  > a block quote in the note.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{.important .large}
+Don't forget to turn off the water!
+
+{source="Iliad"}
+> Sing, muse, of the wrath of Achilles
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+## My heading + auto-identifier

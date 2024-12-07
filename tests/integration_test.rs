@@ -1,40 +1,38 @@
-use jotdown::Render;
+use pretty_assertions::{assert_eq, assert_ne};
 
-fn format(input: &str, expected: &str) {
-    let input = std::fs::read_to_string(input).unwrap();
+fn format(input: &std::path::Path, expected: &std::path::Path) {
+    let input = std::fs::read_to_string(&input).unwrap();
 
     let mut output = &mut String::new();
 
-    djotfmt::Renderer::new()
-        .push_offset(
-            jotdown::Parser::new(input.as_str()).into_offset_iter(),
-            &mut output,
-        )
+    let input = input.as_str();
+
+    djotfmt::Renderer::new(input)
+        .push_offset(jotdown::Parser::new(input).into_offset_iter(), &mut output)
         .unwrap();
 
-    let expected = std::fs::read_to_string(expected).unwrap();
+    let expected = std::fs::read_to_string(&expected).unwrap();
 
     assert_eq!(output.as_str(), expected);
 }
 
-#[test]
-fn test_format() {
-    format("README.dj", "README.dj");
-
-    let paths = std::fs::read_dir("tests/data").unwrap();
-
-    for path in paths {
-        let Ok(path) = path else { continue };
-        let Ok(file_type) = path.file_type() else {
-            continue;
-        };
-        if !file_type.is_dir() {
-            continue;
+macro_rules! djotfmt_test {
+    ($name:ident, $dir:literal) => {
+        #[test]
+        fn $name() {
+            format(
+                &std::path::Path::new("tests")
+                    .join($dir)
+                    .join("input.dj"),
+                &std::path::Path::new("tests")
+                    .join($dir)
+                    .join("expected.dj"),
+            );
         }
-        let path = path.path();
-        let input = path.join("input.dj");
-        let expected = path.join("expected.dj");
-
-        format(input.to_str().unwrap(), expected.to_str().unwrap());
-    }
+    };
 }
+
+djotfmt_test!(syntax_reference, "references");
+djotfmt_test!(readme, "readme");
+djotfmt_test!(keep_comment, "keep-comments");
+djotfmt_test!(heading, "heading");
