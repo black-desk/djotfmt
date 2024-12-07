@@ -1,14 +1,25 @@
+{% vim: set ft=djot: %}
+
 # djotfmt
 
-[![codecov](https://codecov.io/gh/black-desk/djotfmt/graph/badge.svg?token=GF5SAU9WIC)](https://codecov.io/gh/black-desk/djotfmt)
+[![codecov](
+https://codecov.io/gh/black-desk/djotfmt/graph/badge.svg?token=GF5SAU9WIC
+)](https://codecov.io/gh/black-desk/djotfmt)
 
-{% View HTML README here: https://black-desk.github.io/djot-html-preview/?url=https://github.com/black-desk/djotfmt/blob/master/README.dj %}
+::: note
 
-::: warning
-This project is under very early stage and not ready for use.
+You can view HTML README here:
+<https://black-desk.github.io/djot-html-preview/?url=https://github.com/black-desk/djotfmt/blob/master/README.dj>
+
 :::
 
-This is a simple tool written in `rust` to format [Djot][] files.
+::: warning
+
+{*This project is under very early stage and not ready for use.*}
+
+:::
+
+This project is a [`djot`](https://djot.net) formatter written in Rust.
 
 ## Build
 
@@ -44,7 +55,9 @@ djotfmt --help
 
 ## Contributing
 
-- [Djot syntax reference](https://htmlpreview.github.io/?https://github.com/jgm/djot/blob/master/doc/syntax.html)
+- [Djot syntax reference](
+  https://htmlpreview.github.io/?https://github.com/jgm/djot/blob/master/doc/syntax.html
+  )
 
 ## Bugs
 
@@ -57,10 +70,13 @@ Report bugs to <https://github.com/black-desk/djotfmt/issues/new>.
 ## Reference
 
 - [djot-rs](https://github.com/matklad/djot-rs)
-- [djot.js](https://github.com/jgm/djot.js/)
-- [djot.lua](https://github.com/jgm/djot.lua/)
-- [djot](https://github.com/jgm/djot/)
-- [jotdown](https://github.com/hellux/jotdown/)
-- [pandoc](https://github.com/jgm/pandoc)
 
-[Djot]: https://djot.net
+- [djot.js](https://github.com/jgm/djot.js/)
+
+- [djot.lua](https://github.com/jgm/djot.lua/)
+
+- [djot](https://github.com/jgm/djot/)
+
+- [jotdown](https://github.com/hellux/jotdown/)
+
+- [pandoc](https://github.com/jgm/pandoc)

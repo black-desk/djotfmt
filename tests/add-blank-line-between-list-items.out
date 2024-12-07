@@ -1,0 +1,22 @@
+{% vim: set ft=djot : %}
+
+`djotfmt` add blank line between list item.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+- item1
+
+- item2
+
+- a very long long long long long long long long long long long long
+  long long long item3
+
+  - subitem1
+
+  - a very long long long long long long long long long long long long
+    long long long long long long long long long long long long long
+    long subitem2
+
+  - subitem3
+
+- item4

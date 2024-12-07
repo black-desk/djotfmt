@@ -1,8 +1,10 @@
+{% vim: set ft=djot: %}
+
 # Remove extra spaces
 
 This formatter should remove extra spaces.
 
----
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 
 Remove extra spaces in normal text.
 
