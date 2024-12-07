@@ -107,7 +107,7 @@ impl Writer {
                         jotdown::LinkType::Span(span_link_type) => match span_link_type {
                             jotdown::SpanLinkType::Inline => out.write_str("[")?,
                             jotdown::SpanLinkType::Reference => out.write_str("[")?,
-                            jotdown::SpanLinkType::Unresolved => todo!(),
+                            jotdown::SpanLinkType::Unresolved => out.write_str("[")?,
                         },
                         jotdown::LinkType::AutoLink => out.write_str("<")?,
                         jotdown::LinkType::Email => out.write_str("<")?,
@@ -117,15 +117,18 @@ impl Writer {
                         out.write_str("`")?;
                         self.raw = true;
                     }
-                    jotdown::Container::Math { display } => todo!(),
+                    jotdown::Container::Math { display } => match display {
+                        true => out.write_str("$$`")?,
+                        false => out.write_str("$`")?,
+                    },
                     jotdown::Container::RawInline { format } => todo!(),
-                    jotdown::Container::Subscript => todo!(),
-                    jotdown::Container::Superscript => todo!(),
-                    jotdown::Container::Insert => todo!(),
-                    jotdown::Container::Delete => todo!(),
-                    jotdown::Container::Strong => todo!(),
-                    jotdown::Container::Emphasis => todo!(),
-                    jotdown::Container::Mark => todo!(),
+                    jotdown::Container::Subscript => out.write_str("{~")?,
+                    jotdown::Container::Superscript => out.write_str("{^")?,
+                    jotdown::Container::Insert => out.write_str("{+")?,
+                    jotdown::Container::Delete => out.write_str("{-")?,
+                    jotdown::Container::Strong => out.write_str("{*")?,
+                    jotdown::Container::Emphasis => out.write_str("{_")?,
+                    jotdown::Container::Mark => out.write_str("{=")?,
                 },
                 jotdown::Event::End(container) => match container {
                     jotdown::Container::Blockquote => todo!(),
@@ -166,9 +169,14 @@ impl Writer {
                                 }
                                 jotdown::SpanLinkType::Reference => {
                                     out.write_str("[")?;
+                                    out.write_str(&cow)?;
                                     out.write_str("]")?;
                                 }
-                                jotdown::SpanLinkType::Unresolved => todo!(),
+                                jotdown::SpanLinkType::Unresolved => {
+                                    out.write_str("[")?;
+                                    out.write_str(&cow)?;
+                                    out.write_str("]")?;
+                                }
                             }
                         }
                         jotdown::LinkType::AutoLink => out.write_str(">")?,
@@ -182,16 +190,16 @@ impl Writer {
                     jotdown::Container::Verbatim => {
                         self.raw = false;
                         out.write_str("`")?;
-                    },
-                    jotdown::Container::Math { display } => todo!(),
+                    }
+                    jotdown::Container::Math { display: _ } => out.write_str("`")?,
                     jotdown::Container::RawInline { format } => todo!(),
-                    jotdown::Container::Subscript => todo!(),
-                    jotdown::Container::Superscript => todo!(),
-                    jotdown::Container::Insert => todo!(),
-                    jotdown::Container::Delete => todo!(),
-                    jotdown::Container::Strong => todo!(),
-                    jotdown::Container::Emphasis => todo!(),
-                    jotdown::Container::Mark => todo!(),
+                    jotdown::Container::Subscript => out.write_str("=}")?,
+                    jotdown::Container::Superscript => out.write_str("^}")?,
+                    jotdown::Container::Insert => out.write_str("+}")?,
+                    jotdown::Container::Delete => out.write_str("-}")?,
+                    jotdown::Container::Strong => out.write_str("*}")?,
+                    jotdown::Container::Emphasis => out.write_str("_}")?,
+                    jotdown::Container::Mark => out.write_str("=}")?,
                 },
                 jotdown::Event::Str(cow) => match self.raw {
                     true => out.write_str(&cow)?,
@@ -214,19 +222,23 @@ impl Writer {
                         }
                     }
                 },
-                jotdown::Event::FootnoteReference(_) => todo!(),
+                jotdown::Event::FootnoteReference(str) => {
+                    out.write_str("[^")?;
+                    out.write_str(str)?;
+                    out.write_str("]")?;
+                }
                 jotdown::Event::Symbol(cow) => todo!(),
-                jotdown::Event::LeftSingleQuote => todo!(),
-                jotdown::Event::RightSingleQuote => todo!(),
-                jotdown::Event::LeftDoubleQuote => todo!(),
-                jotdown::Event::RightDoubleQuote => todo!(),
-                jotdown::Event::Ellipsis => todo!(),
-                jotdown::Event::EnDash => todo!(),
-                jotdown::Event::EmDash => todo!(),
+                jotdown::Event::LeftSingleQuote => out.write_str("{\'")?,
+                jotdown::Event::RightSingleQuote => out.write_str("\'}")?,
+                jotdown::Event::LeftDoubleQuote => out.write_str("{\"")?,
+                jotdown::Event::RightDoubleQuote => out.write_str("\"}")?,
+                jotdown::Event::Ellipsis => out.write_str("...")?,
+                jotdown::Event::EnDash => out.write_str("--")?,
+                jotdown::Event::EmDash => out.write_str("---")?,
                 jotdown::Event::NonBreakingSpace => todo!(),
-                jotdown::Event::Softbreak => todo!(),
-                jotdown::Event::Hardbreak => todo!(),
-                jotdown::Event::Escape => todo!(),
+                jotdown::Event::Softbreak => out.write_str("\n")?,
+                jotdown::Event::Hardbreak => out.write_str("\\\n")?,
+                jotdown::Event::Escape => out.write_str("\\")?,
                 jotdown::Event::Blankline => out.write_str("\n")?,
                 jotdown::Event::ThematicBreak(attributes) => {
                     out.write_str("---\n")?;

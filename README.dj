@@ -5,10 +5,10 @@
 {% View HTML README here: https://black-desk.github.io/djot-html-preview/?url=https://github.com/black-desk/djotfmt/blob/master/README.dj %}
 
 ::: warning
-This project is under very early stage and not ready for use.
+{*This project is under very early stage and not ready for use.*}
 :::
 
-This is a simple tool written in `rust` to format [Djot][] files.
+This is a simple tool written in `rust` to format [Djot][https://djot.net] files.
 
 ## Build
 
