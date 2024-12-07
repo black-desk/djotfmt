@@ -5,7 +5,7 @@ fn format(input: &str, expected: &str) {
 
     let mut output = &mut String::new();
 
-    djotfmt::renderer::Renderer::new()
+    djotfmt::Renderer::new()
         .push(jotdown::Parser::new(input.as_str()), &mut output)
         .unwrap();
 

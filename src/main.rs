@@ -1,9 +1,7 @@
 use jotdown::Render;
 
 mod cli;
-mod renderer;
 
-pub use renderer::Renderer;
 
 fn main() -> std::io::Result<()> {
     use clap::Parser;
@@ -59,7 +57,7 @@ fn main() -> std::io::Result<()> {
 
         log::trace!("Start render file");
 
-        Renderer::new()
+        djotfmt::Renderer::new()
             .push(
                 jotdown::Parser::new(std::fs::read_to_string(file.clone())?.as_str()),
                 output,
