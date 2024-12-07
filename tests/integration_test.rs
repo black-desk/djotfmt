@@ -1,13 +1,13 @@
-use jotdown::Render;
-
 fn format(input: &str, expected: &str) {
     let input = std::fs::read_to_string(input).unwrap();
 
     let mut output = &mut String::new();
 
-    djotfmt::Renderer::new()
+    let input = input.as_str();
+
+    djotfmt::Renderer::new(input)
         .push_offset(
-            jotdown::Parser::new(input.as_str()).into_offset_iter(),
+            jotdown::Parser::new(input).into_offset_iter(),
             &mut output,
         )
         .unwrap();

@@ -1,8 +1,10 @@
-pub struct Renderer {}
+pub struct Renderer<'a> {
+    source: &'a str,
+}
 
-impl Renderer {
-    pub fn new() -> Self {
-        Self {}
+impl<'a> Renderer<'a> {
+    pub fn new(s: &'a str) -> Self {
+        Self { source: s }
     }
 
     pub fn push_offset<'s, I, W>(&self, events: I, mut out: W) -> std::fmt::Result
@@ -10,22 +12,28 @@ impl Renderer {
         I: Iterator<Item = (jotdown::Event<'s>, std::ops::Range<usize>)>,
         W: std::fmt::Write,
     {
-        let mut writer = Writer::new();
+        let mut writer = Writer::new(self.source);
         writer.push(events, &mut out)?;
         Ok(())
     }
 }
 
-struct Writer {
+struct Writer<'a> {
+    source: &'a str,
     list_bullet_type: Option<jotdown::ListBulletType>,
     raw: bool,
+    at_line_start: bool,
+    prefix: Vec<String>,
 }
 
-impl Writer {
-    pub fn new() -> Self {
+impl<'a> Writer<'a> {
+    pub fn new(s: &'a str) -> Self {
         Self {
+            at_line_start: true,
+            source: s,
             list_bullet_type: None,
             raw: false,
+            prefix: Vec::new(),
         }
     }
 
@@ -37,9 +45,9 @@ impl Writer {
         log::trace!("Start render events");
 
         for e in events {
-            log::debug!("{:?}", e);
-
             let (e, range) = e;
+            log::debug!("Event: {:?}", e);
+            log::debug!("Source: {:?}", &self.source[range]);
 
             match e {
                 jotdown::Event::Start(container, attributes) => match container {
@@ -56,6 +64,12 @@ impl Writer {
                         jotdown::ListKind::Task(list_bullet_type) => todo!(),
                     },
                     jotdown::Container::ListItem => {
+                        if self.at_line_start {
+                            for prefix in self.prefix.iter() {
+                                out.write_str(prefix)?;
+                            }
+                            self.at_line_start = false;
+                        }
                         match self.list_bullet_type {
                             None => todo!(),
                             Some(list_bullet_type) => match list_bullet_type {
@@ -65,6 +79,8 @@ impl Writer {
                             },
                         };
                         out.write_str(" ")?;
+                        self.prefix.push("  ".to_string());
+                        log::trace!("Prefix: {:?}", self.prefix);
                     }
                     jotdown::Container::TaskListItem { checked } => todo!(),
                     jotdown::Container::DescriptionList => todo!(),
@@ -74,18 +90,40 @@ impl Writer {
                     jotdown::Container::TableRow { head } => todo!(),
                     jotdown::Container::Section { id } => (),
                     jotdown::Container::Div { class } => {
+                        if self.at_line_start {
+                            for prefix in self.prefix.iter() {
+                                out.write_str(prefix)?;
+                            }
+                            self.at_line_start = false;
+                        }
                         out.write_str("::: ")?;
                         out.write_str(class)?;
                         out.write_str("\n")?;
+                        self.at_line_start = true;
                     }
-                    jotdown::Container::Paragraph => (),
+                    jotdown::Container::Paragraph => {
+                        if self.at_line_start {
+                            for prefix in self.prefix.iter() {
+                                out.write_str(prefix)?;
+                            }
+                            self.at_line_start = false;
+                        }
+                    }
                     jotdown::Container::Heading {
                         level,
                         has_section: _,
                         id: _,
                     } => {
+                        if self.at_line_start {
+                            for prefix in self.prefix.iter() {
+                                out.write_str(prefix)?;
+                            }
+                            self.at_line_start = false;
+                        }
                         out.write_str("#".repeat(level.into()).as_str())?;
                         out.write_str(" ")?;
+                        self.prefix.push("  ".to_string());
+                        log::trace!("Prefix: {:?}", self.prefix);
                     }
                     jotdown::Container::TableCell { alignment, head } => todo!(),
                     jotdown::Container::Caption => todo!(),
@@ -97,9 +135,16 @@ impl Writer {
                     }
                     jotdown::Container::RawBlock { format } => todo!(),
                     jotdown::Container::CodeBlock { language } => {
+                        if self.at_line_start {
+                            for prefix in self.prefix.iter() {
+                                out.write_str(prefix)?;
+                            }
+                            self.at_line_start = false;
+                        }
                         out.write_str("``` ")?;
                         out.write_str(language)?;
                         out.write_str("\n")?;
+                        self.at_line_start = true;
                         self.raw = true;
                     }
                     jotdown::Container::Span => todo!(),
@@ -107,7 +152,7 @@ impl Writer {
                         jotdown::LinkType::Span(span_link_type) => match span_link_type {
                             jotdown::SpanLinkType::Inline => out.write_str("[")?,
                             jotdown::SpanLinkType::Reference => out.write_str("[")?,
-                            jotdown::SpanLinkType::Unresolved => todo!(),
+                            jotdown::SpanLinkType::Unresolved => out.write_str("[")?,
                         },
                         jotdown::LinkType::AutoLink => out.write_str("<")?,
                         jotdown::LinkType::Email => out.write_str("<")?,
@@ -117,20 +162,26 @@ impl Writer {
                         out.write_str("`")?;
                         self.raw = true;
                     }
-                    jotdown::Container::Math { display } => todo!(),
+                    jotdown::Container::Math { display } => match display {
+                        true => out.write_str("$$`")?,
+                        false => out.write_str("$`")?,
+                    },
                     jotdown::Container::RawInline { format } => todo!(),
-                    jotdown::Container::Subscript => todo!(),
-                    jotdown::Container::Superscript => todo!(),
-                    jotdown::Container::Insert => todo!(),
-                    jotdown::Container::Delete => todo!(),
-                    jotdown::Container::Strong => todo!(),
-                    jotdown::Container::Emphasis => todo!(),
-                    jotdown::Container::Mark => todo!(),
+                    jotdown::Container::Subscript => out.write_str("{~")?,
+                    jotdown::Container::Superscript => out.write_str("{^")?,
+                    jotdown::Container::Insert => out.write_str("{+")?,
+                    jotdown::Container::Delete => out.write_str("{-")?,
+                    jotdown::Container::Strong => out.write_str("{*")?,
+                    jotdown::Container::Emphasis => out.write_str("{_")?,
+                    jotdown::Container::Mark => out.write_str("{=")?,
                 },
                 jotdown::Event::End(container) => match container {
                     jotdown::Container::Blockquote => todo!(),
                     jotdown::Container::List { kind: _, tight: _ } => (),
-                    jotdown::Container::ListItem => (),
+                    jotdown::Container::ListItem => {
+                        self.prefix.pop();
+                        log::trace!("Prefix: {:?}", self.prefix);
+                    }
                     jotdown::Container::TaskListItem { checked } => todo!(),
                     jotdown::Container::DescriptionList => todo!(),
                     jotdown::Container::DescriptionDetails => todo!(),
@@ -138,21 +189,43 @@ impl Writer {
                     jotdown::Container::Table => todo!(),
                     jotdown::Container::TableRow { head } => todo!(),
                     jotdown::Container::Section { id: _ } => (),
-                    jotdown::Container::Div { class: _ } => out.write_str(":::\n")?,
-                    jotdown::Container::Paragraph => out.write_str("\n")?,
+                    jotdown::Container::Div { class: _ } => {
+                        if self.at_line_start {
+                            for prefix in self.prefix.iter() {
+                                out.write_str(prefix)?;
+                            }
+                            self.at_line_start = false;
+                        }
+                        out.write_str(":::\n")?;
+                        self.at_line_start = true;
+                    }
+                    jotdown::Container::Paragraph => {
+                        out.write_str("\n")?;
+                        self.at_line_start = true;
+                    }
                     jotdown::Container::Heading {
                         level: _,
                         has_section: _,
                         id: _,
-                    } => out.write_str("\n")?,
+                    } => {
+                        out.write_str("\n")?;
+                        self.prefix.pop();
+                        self.at_line_start = true;
+                        log::trace!("Prefix: {:?}", self.prefix);
+                    }
                     jotdown::Container::TableCell { alignment, head } => todo!(),
                     jotdown::Container::Caption => todo!(),
                     jotdown::Container::DescriptionTerm => todo!(),
-                    jotdown::Container::LinkDefinition { label } => out.write_str("\n")?,
+                    jotdown::Container::LinkDefinition { label } => {
+                        out.write_str("\n")?;
+                        self.prefix.pop();
+                        self.at_line_start = true;
+                    }
                     jotdown::Container::RawBlock { format } => todo!(),
                     jotdown::Container::CodeBlock { language: _ } => {
                         self.raw = false;
                         out.write_str("```\n")?;
+                        self.at_line_start = true;
                     }
                     jotdown::Container::Span => todo!(),
                     jotdown::Container::Link(cow, link_type) => match link_type {
@@ -166,9 +239,14 @@ impl Writer {
                                 }
                                 jotdown::SpanLinkType::Reference => {
                                     out.write_str("[")?;
+                                    out.write_str(&cow)?;
                                     out.write_str("]")?;
                                 }
-                                jotdown::SpanLinkType::Unresolved => todo!(),
+                                jotdown::SpanLinkType::Unresolved => {
+                                    out.write_str("[")?;
+                                    out.write_str(&cow)?;
+                                    out.write_str("]")?;
+                                }
                             }
                         }
                         jotdown::LinkType::AutoLink => out.write_str(">")?,
@@ -183,15 +261,15 @@ impl Writer {
                         self.raw = false;
                         out.write_str("`")?;
                     }
-                    jotdown::Container::Math { display } => todo!(),
+                    jotdown::Container::Math { display: _ } => out.write_str("`")?,
                     jotdown::Container::RawInline { format } => todo!(),
-                    jotdown::Container::Subscript => todo!(),
-                    jotdown::Container::Superscript => todo!(),
-                    jotdown::Container::Insert => todo!(),
-                    jotdown::Container::Delete => todo!(),
-                    jotdown::Container::Strong => todo!(),
-                    jotdown::Container::Emphasis => todo!(),
-                    jotdown::Container::Mark => todo!(),
+                    jotdown::Container::Subscript => out.write_str("=}")?,
+                    jotdown::Container::Superscript => out.write_str("^}")?,
+                    jotdown::Container::Insert => out.write_str("+}")?,
+                    jotdown::Container::Delete => out.write_str("-}")?,
+                    jotdown::Container::Strong => out.write_str("*}")?,
+                    jotdown::Container::Emphasis => out.write_str("_}")?,
+                    jotdown::Container::Mark => out.write_str("=}")?,
                 },
                 jotdown::Event::Str(cow) => match self.raw {
                     true => out.write_str(&cow)?,
@@ -214,24 +292,52 @@ impl Writer {
                         }
                     }
                 },
-                jotdown::Event::FootnoteReference(_) => todo!(),
+                jotdown::Event::FootnoteReference(str) => {
+                    out.write_str("[^")?;
+                    out.write_str(str)?;
+                    out.write_str("]")?;
+                }
                 jotdown::Event::Symbol(cow) => todo!(),
-                jotdown::Event::LeftSingleQuote => todo!(),
-                jotdown::Event::RightSingleQuote => todo!(),
-                jotdown::Event::LeftDoubleQuote => todo!(),
-                jotdown::Event::RightDoubleQuote => todo!(),
-                jotdown::Event::Ellipsis => todo!(),
-                jotdown::Event::EnDash => todo!(),
-                jotdown::Event::EmDash => todo!(),
+                jotdown::Event::LeftSingleQuote => out.write_str("{\'")?,
+                jotdown::Event::RightSingleQuote => out.write_str("\'}")?,
+                jotdown::Event::LeftDoubleQuote => out.write_str("{\"")?,
+                jotdown::Event::RightDoubleQuote => out.write_str("\"}")?,
+                jotdown::Event::Ellipsis => out.write_str("...")?,
+                jotdown::Event::EnDash => out.write_str("--")?,
+                jotdown::Event::EmDash => out.write_str("---")?,
                 jotdown::Event::NonBreakingSpace => todo!(),
-                jotdown::Event::Softbreak => todo!(),
-                jotdown::Event::Hardbreak => todo!(),
-                jotdown::Event::Escape => todo!(),
-                jotdown::Event::Blankline => out.write_str("\n")?,
+                jotdown::Event::Softbreak => {
+                    out.write_str("\n")?;
+                    for prefix in self.prefix.iter() {
+                        out.write_str(prefix)?;
+                    }
+                    self.at_line_start = false;
+                }
+                jotdown::Event::Hardbreak => {
+                    out.write_str("\\\n")?;
+                    for prefix in self.prefix.iter() {
+                        out.write_str(prefix)?;
+                    }
+                    self.at_line_start = false;
+                }
+                jotdown::Event::Escape => out.write_str("\\")?,
+                jotdown::Event::Blankline => {
+                    out.write_str("\n")?;
+                    self.at_line_start = true;
+                }
                 jotdown::Event::ThematicBreak(attributes) => {
                     out.write_str("---\n")?;
+                    for prefix in self.prefix.iter() {
+                        out.write_str(prefix)?;
+                    }
                 }
                 jotdown::Event::Attributes(attributes) => {
+                    if self.at_line_start {
+                        for prefix in self.prefix.iter() {
+                            out.write_str(prefix)?;
+                        }
+                        self.at_line_start = false;
+                    }
                     out.write_str("{")?;
                     for (k, v) in attributes {
                         match k {
@@ -263,6 +369,7 @@ impl Writer {
                         }
                     }
                     out.write_str("}\n")?;
+                    self.at_line_start = true;
                 }
             }
         }
