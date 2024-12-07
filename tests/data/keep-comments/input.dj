@@ -7,3 +7,5 @@ Unlike djot.js, this formatter keep comments in the output file.
 {% Some comment %}
 
 Normal text
+
+{% Other comment %}
