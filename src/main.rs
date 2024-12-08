@@ -2,7 +2,6 @@ use jotdown::Render;
 
 mod cli;
 
-
 fn main() -> std::io::Result<()> {
     use clap::Parser;
     let matches = cli::Cli::parse();
