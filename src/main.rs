@@ -57,8 +57,8 @@ fn main() -> std::io::Result<()> {
         log::trace!("Start render file");
 
         djotfmt::Renderer::new()
-            .push(
-                jotdown::Parser::new(std::fs::read_to_string(file.clone())?.as_str()),
+            .push_offset(
+                jotdown::Parser::new(std::fs::read_to_string(file.clone())?.as_str()).into_offset_iter(),
                 output,
             )
             .unwrap();

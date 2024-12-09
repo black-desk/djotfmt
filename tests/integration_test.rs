@@ -6,7 +6,10 @@ fn format(input: &str, expected: &str) {
     let mut output = &mut String::new();
 
     djotfmt::Renderer::new()
-        .push(jotdown::Parser::new(input.as_str()), &mut output)
+        .push_offset(
+            jotdown::Parser::new(input.as_str()).into_offset_iter(),
+            &mut output,
+        )
         .unwrap();
 
     let expected = std::fs::read_to_string(expected).unwrap();

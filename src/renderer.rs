@@ -4,12 +4,10 @@ impl Renderer {
     pub fn new() -> Self {
         Self {}
     }
-}
 
-impl jotdown::Render for Renderer {
-    fn push<'s, I, W>(&self, events: I, mut out: W) -> std::fmt::Result
+    pub fn push_offset<'s, I, W>(&self, events: I, mut out: W) -> std::fmt::Result
     where
-        I: Iterator<Item = jotdown::Event<'s>>,
+        I: Iterator<Item = (jotdown::Event<'s>, std::ops::Range<usize>)>,
         W: std::fmt::Write,
     {
         let mut writer = Writer::new();
@@ -33,13 +31,15 @@ impl Writer {
 
     fn push<'s, I, W>(&mut self, events: I, mut out: W) -> std::fmt::Result
     where
-        I: Iterator<Item = jotdown::Event<'s>>,
+        I: Iterator<Item = (jotdown::Event<'s>, std::ops::Range<usize>)>,
         W: std::fmt::Write,
     {
         log::trace!("Start render events");
 
         for e in events {
             log::debug!("{:?}", e);
+
+            let (e, range) = e;
 
             match e {
                 jotdown::Event::Start(container, attributes) => match container {
@@ -182,7 +182,7 @@ impl Writer {
                     jotdown::Container::Verbatim => {
                         self.raw = false;
                         out.write_str("`")?;
-                    },
+                    }
                     jotdown::Container::Math { display } => todo!(),
                     jotdown::Container::RawInline { format } => todo!(),
                     jotdown::Container::Subscript => todo!(),
