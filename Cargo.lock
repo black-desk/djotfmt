@@ -182,9 +182,8 @@ checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
 name = "jotdown"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19fa1db3b285830176c8a940d4e3376679772bee9f58a83dd9285a4a54e30f6e"
+version = "0.7.0"
+source = "git+https://github.com/hellux/jotdown.git#27a3a475385b14dc139aec66a8099990bdf6a828"
 
 [[package]]
 name = "lazy_static"
