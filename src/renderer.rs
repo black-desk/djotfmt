@@ -117,6 +117,7 @@ impl<'a> Writer<'a> {
     }
 
     fn prefix(&mut self) -> std::fmt::Result {
+        log::trace!("Prefix: {:?}", self.prefix);
         if !self.pending_line.is_empty() {
             return Ok(());
         }
@@ -124,6 +125,7 @@ impl<'a> Writer<'a> {
         for prefix in self.prefix.iter() {
             self.pending_line.write_str(prefix)?;
         }
+        log::trace!("Pending line: {:?}", self.pending_line);
         Ok(())
     }
 
@@ -159,19 +161,107 @@ impl<'a> Writer<'a> {
                 jotdown::Event::Start(container, attributes) => {
                     self.attrs = attributes;
                     log::debug!("Attributes: {:?}", self.attrs);
+                    if container.is_block() {
+                        self.blankline(&mut out)?;
+                        if !self.attrs.is_empty() {
+                            self.prefix()?;
+                        }
+                        for (k, v) in self.attrs.clone() {
+                            match k {
+                                jotdown::AttributeKind::Class => {
+                                    self.push_word("{ .")?;
+                                }
+                                jotdown::AttributeKind::Id => {
+                                    self.push_word("{ #")?;
+                                }
+                                jotdown::AttributeKind::Pair { ref key } => {
+                                    self.push_word("{ ")?;
+                                    self.push_word(key)?;
+                                    self.push_word("=")?;
+                                }
+                                jotdown::AttributeKind::Comment => {
+                                    self.push_raw("{%")?;
+                                    self.wrap(&mut out)?;
+                                }
+                            }
+                            self.prefix.push(" ".to_string());
+                            for part in v.parts() {
+                                let mut space = true;
+                                for char in part.chars() {
+                                    if !char.is_whitespace() {
+                                        space = false;
+                                        self.push_word(char.to_string().as_str())?;
+                                        continue;
+                                    }
+
+                                    if space {
+                                        continue;
+                                    }
+
+                                    self.commit_word(true, &mut out)?;
+
+                                    space = true;
+                                }
+                            }
+                            match k {
+                                jotdown::AttributeKind::Class => {
+                                    if !self.pending_word.is_empty() {
+                                        self.commit_word(true, &mut out)?;
+                                    }
+                                    if self.pending_line.is_empty() {
+                                        self.space_after_pending_word = false;
+                                    }
+                                    self.push_word("}")?;
+                                    self.commit_word(false, &mut out)?;
+                                }
+                                jotdown::AttributeKind::Id => {
+                                    if !self.pending_word.is_empty() {
+                                        self.commit_word(true, &mut out)?;
+                                    }
+                                    if self.pending_line.is_empty() {
+                                        self.space_after_pending_word = false;
+                                    }
+                                    self.push_word("}")?;
+                                    self.commit_word(false, &mut out)?;
+                                }
+                                jotdown::AttributeKind::Pair { key: _ } => {
+                                    if !self.pending_word.is_empty() {
+                                        self.commit_word(true, &mut out)?;
+                                    }
+                                    if self.pending_line.is_empty() {
+                                        self.space_after_pending_word = false;
+                                    }
+                                    self.push_word("}")?;
+                                    self.commit_word(false, &mut out)?;
+                                }
+                                jotdown::AttributeKind::Comment => {
+                                    if !self.pending_word.is_empty() {
+                                        self.commit_word(true, &mut out)?;
+                                    }
+                                    self.wrap(&mut out)?;
+                                    if self.pending_line.is_empty() {
+                                        self.space_after_pending_word = false;
+                                    }
+                                    self.prefix()?;
+                                    self.push_word("%}")?;
+                                    self.commit_word(false, &mut out)?;
+                                }
+                            }
+                            self.prefix.pop();
+                            self.wrap(&mut out)?;
+                        }
+                    }
+
                     match container {
                         jotdown::Container::Blockquote => {
-                            self.blankline(&mut out)?;
                             self.prefix.push("> ".to_string());
                             log::trace!("Prefix: {:?}", self.prefix);
                         }
                         jotdown::Container::List { kind, tight: _ } => {
-                            self.blankline(&mut out)?;
                             self.list_kind.push(kind);
                             self.list_index.push(0);
                         }
                         jotdown::Container::ListItem => {
-                            self.blankline(&mut out)?;
                             self.prefix()?;
                             *self.list_index.last_mut().unwrap() += 1;
                             let kind = self.list_kind.last().unwrap().clone();
@@ -258,10 +348,9 @@ impl<'a> Writer<'a> {
                             log::trace!("Prefix: {:?}", self.prefix);
                         }
                         jotdown::Container::Footnote { label } => {
-                            self.blankline(&mut out)?;
                             self.prefix()?;
                             self.push_raw("[^")?;
-                            self.push_raw(label)?;
+                            self.push_raw(&label)?;
                             self.push_raw("]:")?;
                             self.wrap(&mut out)?;
                             self.prefix.push("  ".to_string());
@@ -273,22 +362,18 @@ impl<'a> Writer<'a> {
                         }
                         jotdown::Container::Section { id } => (),
                         jotdown::Container::Div { class } => {
-                            self.blankline(&mut out)?;
                             self.prefix()?;
                             self.push_raw("::: ")?;
-                            self.push_raw(class)?;
+                            self.push_raw(&class)?;
                             self.wrap(&mut out)?;
                             self.need_blankline = true;
                         }
-                        jotdown::Container::Paragraph => {
-                            self.blankline(&mut out)?;
-                        }
+                        jotdown::Container::Paragraph => {}
                         jotdown::Container::Heading {
                             level,
                             has_section: _,
                             id: _,
                         } => {
-                            self.blankline(&mut out)?;
                             self.prefix()?;
                             self.push_raw("#".repeat(level.into()).as_str())?;
                             self.push_raw(" ")?;
@@ -298,29 +383,26 @@ impl<'a> Writer<'a> {
                         jotdown::Container::TableCell { alignment, head } => self.push_raw(" ")?,
                         jotdown::Container::Caption => todo!(),
                         jotdown::Container::DescriptionTerm => {
-                            self.blankline(&mut out)?;
                             self.push_raw(": ")?;
                         }
                         jotdown::Container::LinkDefinition { label } => {
                             self.push_raw("[")?;
-                            self.push_raw(label)?;
+                            self.push_raw(&label)?;
                             self.push_raw("]: ")?;
                         }
                         jotdown::Container::RawBlock { format } => {
-                            self.blankline(&mut out)?;
                             self.prefix()?;
                             self.push_raw("``` =")?;
-                            self.push_raw(format)?;
+                            self.push_raw(&format)?;
                             self.wrap(&mut out)?;
                             self.raw = true;
                         }
                         jotdown::Container::CodeBlock { language } => {
-                            self.blankline(&mut out)?;
                             self.prefix()?;
                             self.push_raw("```")?;
                             if !language.is_empty() {
                                 self.push_raw(" ")?;
-                                self.push_raw(language)?;
+                                self.push_raw(&language)?;
                             }
                             self.wrap(&mut out)?;
                             self.raw = true;
@@ -500,7 +582,7 @@ impl<'a> Writer<'a> {
                         jotdown::Container::Math { display: _ } => self.push_word("`")?,
                         jotdown::Container::RawInline { format } => {
                             self.push_word("`{=")?;
-                            self.push_word(format)?;
+                            self.push_word(&format)?;
                             self.push_word("}")?;
                         }
                         jotdown::Container::Subscript => self.push_word("~}")?,
@@ -580,7 +662,7 @@ impl<'a> Writer<'a> {
                 },
                 jotdown::Event::FootnoteReference(str) => {
                     self.push_word("[^")?;
-                    self.push_word(str)?;
+                    self.push_word(&str)?;
                     self.push_word("]")?;
                 }
                 jotdown::Event::Symbol(cow) => {
@@ -620,37 +702,75 @@ impl<'a> Writer<'a> {
                 jotdown::Event::Attributes(attributes) => {
                     self.blankline(&mut out)?;
                     self.prefix()?;
-                    out.write_str("{")?;
                     for (k, v) in attributes {
                         match k {
                             jotdown::AttributeKind::Class => {
-                                out.write_str(" .")?;
+                                self.push_word("{")?;
+                                self.commit_word(true, &mut out)?;
+                                self.push_word(".")?;
+                                self.commit_word(false, &mut out)?;
                             }
                             jotdown::AttributeKind::Id => {
-                                out.write_str(" #")?;
+                                self.push_word("{")?;
+                                self.commit_word(true, &mut out)?;
+                                self.push_word("#")?;
+                                self.commit_word(false, &mut out)?;
                             }
-                            jotdown::AttributeKind::Pair { key } => {
-                                out.write_str(" ")?;
-                                out.write_str(key)?;
-                                out.write_str("=")?;
+                            jotdown::AttributeKind::Pair { ref key } => {
+                                self.push_word("{")?;
+                                self.commit_word(true, &mut out)?;
+                                self.push_word(key)?;
+                                self.push_word("=")?;
                             }
                             jotdown::AttributeKind::Comment => {
-                                out.write_str("%")?;
+                                self.push_raw("{%")?;
+                                self.wrap(&mut out)?;
                             }
                         }
+                        self.prefix.push(" ".to_string());
                         for part in v.parts() {
-                            out.write_str(part)?;
+                            let mut space = true;
+                            for char in part.chars() {
+                                if !char.is_whitespace() {
+                                    space = false;
+                                    self.push_word(char.to_string().as_str())?;
+                                    continue;
+                                }
+
+                                if space {
+                                    continue;
+                                }
+
+                                self.commit_word(true, &mut out)?;
+
+                                space = true;
+                            }
                         }
                         match k {
-                            jotdown::AttributeKind::Class => (),
-                            jotdown::AttributeKind::Id => (),
-                            jotdown::AttributeKind::Pair { key: _ } => (),
+                            jotdown::AttributeKind::Class => {
+                                self.push_word("}")?;
+                                self.commit_word(false, &mut out)?;
+                            }
+                            jotdown::AttributeKind::Id => {
+                                self.push_word("}")?;
+                                self.commit_word(false, &mut out)?;
+                            }
+                            jotdown::AttributeKind::Pair { key: _ } => {
+                                self.push_raw("}")?;
+                                self.commit_word(false, &mut out)?;
+                            }
                             jotdown::AttributeKind::Comment => {
-                                out.write_str("%")?;
+                                self.wrap(&mut out)?;
+                                if self.pending_line.is_empty() {
+                                    self.space_after_pending_word = false;
+                                }
+                                self.prefix()?;
+                                self.push_word("%}")?;
+                                self.commit_word(false, &mut out)?;
                             }
                         }
+                        self.prefix.pop();
                     }
-                    out.write_str("}\n")?;
                     self.need_blankline = true;
                 }
             }
