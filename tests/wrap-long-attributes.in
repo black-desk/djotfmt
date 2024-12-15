@@ -1,0 +1,16 @@
+{% vim:set ft=djot: %}
+
+`djotfmt` will wrap long attributes (both inline and block) to the 72
+column width, including comments.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{ .some-very-very-long-class #some-very-very-long-id % some very very long comment %}
+
+> { .some-very-very-very-very-very-very-very-long-class #some-very-very-long-id % some
+>   very very very very very very long comment %}
+
+{ key="some very very very very very very very very very very very very long value"
+  % some very very very very very very long comment %}
+
+some *text*{ .some-very-very-very-very-very-very-very-long-class % some very very very very very very long comment % #some-very-very-very-long-id key="some very very very very very very very very very very very very long value"}
