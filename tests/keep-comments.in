@@ -1,0 +1,31 @@
+{%
+ vim: ft=djot
+ %}
+
+# Keep comments
+
+`djot.js` has a djot renderer already,
+you can use it to format a djot file like this:
+
+``` bash
+djot -f djot -t djot
+```
+
+It will remove all comments in the output file,
+as comments are not emitted as an event at all.
+
+But djotfmt will keep comments in the output file.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{%
+ Some comments
+ %}
+
+Normal text
+
+{%
+ Other comments
+ %}
+
+Other normal text
