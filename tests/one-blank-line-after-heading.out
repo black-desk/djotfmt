@@ -1,4 +1,6 @@
-{% vim: set ft=djot: %}
+{%
+ vim: ft=djot
+ %}
 
 `djotfmt` always make sure there is one blank line after heading.
 
