@@ -1,4 +1,6 @@
-{% vim:set ft=djot: %}
+{%
+ vim: ft=djot
+ %}
 
 `djotfmt` keep all content in code block as it is.
 
