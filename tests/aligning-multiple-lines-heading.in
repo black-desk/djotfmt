@@ -1,4 +1,6 @@
-{% vim: set ft=djot: %}
+{%
+ vim: ft=djot
+ %}
 
 `djotfmt` indent multiple lines of heading text to align with the first
 non-space character of the first line.
