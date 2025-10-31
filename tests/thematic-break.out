@@ -1,4 +1,6 @@
-{% vim:set ft=djot: %}
+{%
+ vim: ft=djot
+ %}
 
 `djotfmt` format thematic break (horizontal rule) as `* ` sequence.
 
