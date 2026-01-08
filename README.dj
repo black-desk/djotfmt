@@ -1,4 +1,6 @@
-{% vim: set ft=djot: %}
+{%
+ vim: ft=djot
+ %}
 
 # djotfmt
 
@@ -6,12 +8,10 @@
 https://codecov.io/gh/black-desk/djotfmt/graph/badge.svg?token=GF5SAU9WIC
 )](https://codecov.io/gh/black-desk/djotfmt)
 
-::: note
-
-You can view HTML README here:
-<https://black-desk.github.io/djot-html-preview/?url=https://github.com/black-desk/djotfmt/blob/master/README.dj>
-
-:::
+{%
+ You can view HTML README here:
+ https://black-desk.github.io/djot-html-preview/?url=https://github.com/black-desk/djotfmt/blob/master/README.dj
+ %}
 
 ::: warning
 

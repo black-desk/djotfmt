@@ -1,4 +1,6 @@
-{% vim: set ft=djot: %}
+{%
+ vim: ft=djot
+ %}
 
 `djotfmt` wrap lines at 72 characters like `pandoc`
 

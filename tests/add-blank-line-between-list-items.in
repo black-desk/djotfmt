@@ -1,4 +1,6 @@
-{% vim: set ft=djot : %}
+{%
+ vim: ft=djot
+ %}
 
 `djotfmt` add blank line between list item.
 

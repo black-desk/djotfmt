@@ -193,7 +193,7 @@ checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 [[package]]
 name = "jotdown"
 version = "0.7.0"
-source = "git+https://github.com/hellux/jotdown.git#27a3a475385b14dc139aec66a8099990bdf6a828"
+source = "git+https://github.com/hellux/jotdown.git#d81d286aa752b6b429a3a38b809c2645c104b5b4"
 
 [[package]]
 name = "log"

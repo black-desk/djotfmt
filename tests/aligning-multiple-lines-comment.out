@@ -1,0 +1,14 @@
+{%
+ vim: ft=djot
+ %}
+
+`djotfmt` will aligning multiple lines comment.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+> {%
+>  Some very long long long long long long long long long long long long
+>  comments with an very long URL
+>  https://example.org/very/very/very/very/very/very/long/url/take/entire/line
+>  in a block quote
+>  %}
