@@ -1,0 +1,7 @@
+{% vim: set ft=djot: %}
+
+`djotfmt` wrap lines at 80 characters like `pandoc`
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+A very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very very long line that should be wrapped at 80 characters.

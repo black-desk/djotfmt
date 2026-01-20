@@ -57,8 +57,16 @@ fn main() -> std::io::Result<()> {
         let input = std::fs::read_to_string(file.clone())?;
         let input = input.as_str();
 
+        let config = djotfmt::WriterConfig {
+            max_cols: matches.columns,
+        };
+
         djotfmt::Renderer::new(input)
-            .push_offset(jotdown::Parser::new(input).into_offset_iter(), output)
+            .push_offset(
+                jotdown::Parser::new(input).into_offset_iter(),
+                output,
+                &config,
+            )
             .unwrap();
 
         log::trace!("File rendered");

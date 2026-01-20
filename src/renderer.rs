@@ -6,17 +6,26 @@ pub struct Renderer<'a> {
     source: &'a str,
 }
 
+pub struct WriterConfig {
+    pub max_cols: usize,
+}
+
 impl<'a> Renderer<'a> {
     pub fn new(s: &'a str) -> Self {
         Self { source: s }
     }
 
-    pub fn push_offset<'s, I, W>(&self, events: I, mut out: W) -> std::fmt::Result
+    pub fn push_offset<'s, I, W>(
+        &self,
+        events: I,
+        mut out: W,
+        config: &WriterConfig,
+    ) -> std::fmt::Result
     where
         I: Iterator<Item = (jotdown::Event<'s>, std::ops::Range<usize>)>,
         W: std::fmt::Write,
     {
-        let mut writer = Writer::new(self.source);
+        let mut writer = Writer::new(self.source, config);
         writer.push(events, &mut out)?;
         Ok(())
     }
@@ -33,10 +42,11 @@ struct Writer<'a> {
     pending_word: String,
     space_after_pending_word: bool,
     source: &'a str,
+    max_cols: usize,
 }
 
 impl<'a> Writer<'a> {
-    pub fn new(s: &'a str) -> Self {
+    pub fn new(s: &'a str, config: &WriterConfig) -> Self {
         Self {
             attrs: jotdown::Attributes::new(),
             list_index: Vec::new(),
@@ -48,6 +58,7 @@ impl<'a> Writer<'a> {
             pending_line: std::string::String::new(),
             pending_word: std::string::String::new(),
             space_after_pending_word: false,
+            max_cols: config.max_cols,
         }
     }
 
@@ -70,7 +81,7 @@ impl<'a> Writer<'a> {
         length += self.pending_word.width();
         let length = length;
 
-        if length > 72 && !self.pending_line.is_empty() {
+        if length > self.max_cols && !self.pending_line.is_empty() {
             self.wrap(out)?;
         } else if self.space_after_pending_word {
             self.pending_line.write_str(" ")?;
@@ -600,8 +611,8 @@ impl<'a> Writer<'a> {
                     self.prefix()?;
                     self.push_raw("* * *")?;
                     let column = self.pending_line.width_cjk();
-                    if column < 72 {
-                        self.push_raw(" *".repeat((72 - column) / 2).as_str())?;
+                    if column < self.max_cols {
+                        self.push_raw(" *".repeat((self.max_cols - column) / 2).as_str())?;
                     }
                     self.wrap(&mut out)?;
                     self.need_blankline = true;
