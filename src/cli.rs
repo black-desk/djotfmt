@@ -14,4 +14,11 @@ pub struct Cli {
 
     #[clap(short, help = "Inplace edit <file>s")]
     pub inplace: bool,
+
+    #[clap(
+        short,
+        help = "Set the maximum number of allowed columns",
+        default_value_t = 72
+    )]
+    pub columns: usize,
 }
