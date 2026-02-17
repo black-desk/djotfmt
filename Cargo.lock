@@ -304,9 +304,9 @@ dependencies = [
 
 [[package]]
 name = "test_each_file"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2de773517ee4367314c7918f6c9ef69c201ba72bfdbffb00234c22c50a153b73"
+checksum = "44619e49a1f62888c271dc50533f036363a7936f99c7cb467ca9d45224cf83b3"
 dependencies = [
  "proc-macro2",
  "quote",
