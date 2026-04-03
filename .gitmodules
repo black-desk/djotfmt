@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Chen Linxuan <me@black-desk.cn>
+#
+# SPDX-License-Identifier: MIT
+
 [submodule "third_party/jotdown"]
 	path = third_party/jotdown
 	url = https://github.com/black-desk/jotdown

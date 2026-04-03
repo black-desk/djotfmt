@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Chen Linxuan <me@black-desk.cn>
+#
+# SPDX-License-Identifier: MIT
+
 version: 2
 updates:
     - directory: /
@@ -6,5 +10,9 @@ updates:
         interval: daily
     - directory: /
       package-ecosystem: cargo
+      schedule:
+        interval: daily
+    - directory: /
+      package-ecosystem: gitsubmodule
       schedule:
         interval: daily
