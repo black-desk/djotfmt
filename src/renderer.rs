@@ -62,8 +62,8 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn push_word(&mut self, word: &str) -> std::fmt::Result {
-        self.pending_word.write_str(word)?;
+    fn push_word(&mut self, word: impl AsRef<str>) -> std::fmt::Result {
+        self.pending_word.write_str(word.as_ref())?;
         log::trace!("Pending word: {:?}", self.pending_word);
         Ok(())
     }
@@ -95,13 +95,13 @@ impl<'a> Writer<'a> {
         Ok(())
     }
 
-    fn push_raw(&mut self, text: &str) -> std::fmt::Result {
+    fn push_raw(&mut self, text: impl AsRef<str>) -> std::fmt::Result {
         assert!(
             self.pending_word.is_empty(),
             "Pending word: {:?}",
             self.pending_word
         );
-        self.pending_line.write_str(text)?;
+        self.pending_line.write_str(text.as_ref())?;
         log::trace!("Pending line: {:?}", self.pending_line);
         Ok(())
     }
@@ -523,7 +523,7 @@ impl<'a> Writer<'a> {
                                     out.write_str(" #")?;
                                 }
                                 jotdown::AttributeKind::Pair { key } => {
-                                    out.write_str(key)?;
+                                    out.write_str(key.as_ref())?;
                                     out.write_str(" =")?;
                                 }
                                 jotdown::AttributeKind::Comment => {
@@ -629,9 +629,9 @@ impl<'a> Writer<'a> {
                             jotdown::AttributeKind::Id => {
                                 out.write_str(" #")?;
                             }
-                            jotdown::AttributeKind::Pair { key } => {
+                            jotdown::AttributeKind::Pair { ref key } => {
                                 out.write_str(" ")?;
-                                out.write_str(key)?;
+                                out.write_str(key.as_ref())?;
                                 out.write_str("=")?;
                             }
                             jotdown::AttributeKind::Comment => {
