@@ -210,8 +210,7 @@ dependencies = [
 
 [[package]]
 name = "jotdown"
-version = "0.7.0"
-source = "git+https://github.com/hellux/jotdown.git#27a3a475385b14dc139aec66a8099990bdf6a828"
+version = "0.9.1"
 
 [[package]]
 name = "log"
