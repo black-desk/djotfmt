@@ -1,0 +1,56 @@
+{% vim: set ft=djot: %}
+
+# Contributing to djotfmt
+
+Thank you for your interest in contributing to djotfmt!
+
+## Build
+
+``` bash
+cargo build
+```
+
+## Test
+
+``` bash
+cargo test
+```
+
+## Debug
+
+djotfmt uses the `log` crate for logging.
+You can increase the verbosity level with the `-v` flag
+to see more detailed information about the formatting process.
+
+- {_(default)_} Warn: Only warnings and errors.
+
+- `-v` Info: General informational messages.
+
+- `-vv` Debug: Show jotdown parse events and the corresponding source
+  text.
+
+- `-vvv` Trace: Show internal rendering state: pending words, pending
+  lines, prefix stack, etc.
+
+For example, to debug the formatting of a file with full trace output:
+
+``` bash
+cargo run -- -vvv input.dj
+```
+
+At `Debug` level you will see output like:
+
+```
+DEBUG Event: Start(Paragraph, ...)
+DEBUG Source: "hello world"
+DEBUG Attributes: ...
+```
+
+At `Trace` level you will see additional internal state:
+
+```
+TRACE Pending word: "hello"
+TRACE Commit word: "hello"
+TRACE Pending line: "hello "
+TRACE Prefix: ["> "]
+```
