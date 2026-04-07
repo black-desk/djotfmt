@@ -1,0 +1,54 @@
+[package]
+name = "jotdown"
+description = "A parser for the Djot markup language"
+authors = ["Noah Hellman <noah@hllmn.net>"]
+version = "0.9.1"
+license = "MIT"
+edition = "2021"
+rust-version = "1.82"
+keywords = ["djot", "markup"]
+categories = ["parser-implementations"]
+homepage = "https://hllmn.net/projects/jotdown"
+repository = "https://github.com/hellux/jotdown"
+documentation = "https://docs.rs/jotdown"
+exclude = [
+    "contrib",
+    ".github",
+    ".gitmodules",
+    "Makefile",
+    "bench",
+    "modules",
+    "tests",
+]
+
+[workspace]
+members = [
+    "bench/criterion",
+    "bench/input",
+    "examples/jotdown_wasm",
+    "tests/html-ref",
+    "tests/html-ut",
+]
+exclude = [
+    "tests/afl",
+]
+
+[dependencies]
+clap = { version = "4.5", optional = true, features = ["derive"] }
+
+[[bin]]
+name = "jotdown"
+required-features = ["cli"]
+doc = false
+
+[features]
+default = ["html"]
+html = [] # html renderer
+cli = ["html", "dep:clap"]
+deterministic = [] # for stable fuzzing
+
+[profile.release]
+lto = true
+
+[profile.release.package.jotdown_wasm]
+opt-level = 's'

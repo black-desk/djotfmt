@@ -1,0 +1,6 @@
+examples/jotdown_wasm/index.html
+jotdown
+target/
+tests/html-ref/ref.rs
+tests/html-ut/*.rs
+tests/html-ut/djot_js_*.test

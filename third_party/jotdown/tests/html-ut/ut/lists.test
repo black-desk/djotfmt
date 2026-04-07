@@ -1,0 +1,103 @@
+```
+1. item
+
+para
+.
+<ol>
+<li>
+item
+</li>
+</ol>
+<p>para</p>
+```
+
+Only single letter alphabetic list markers.
+
+```
+word. Continuing paragraph.
+.
+<p>word. Continuing paragraph.</p>
+```
+
+Prioritize current type when ambigiuous.
+
+```
+A) first
+B) second
+C) third
+D) fourth
+E) fifth
+.
+<ol type="A">
+<li>
+first
+</li>
+<li>
+second
+</li>
+<li>
+third
+</li>
+<li>
+fourth
+</li>
+<li>
+fifth
+</li>
+</ol>
+```
+
+Numbered lists can use roman numerals
+
+```
+mdclxvi) 1666
+mdclxvii) 1667
+MDCLXVIII) 1668
+MDCLXVIX) 1669
+.
+<ol start="1666" type="i">
+<li>
+1666
+</li>
+<li>
+1667
+</li>
+</ol>
+<ol start="1668" type="I">
+<li>
+1668
+</li>
+<li>
+1669
+</li>
+</ol>
+```
+
+An ordered list with a style change should be split in two
+
+```
+i. a
+j. b
+
+i. a
+j) d
+.
+<ol start="9" type="a">
+<li>
+a
+</li>
+<li>
+b
+</li>
+</ol>
+<ol type="i">
+<li>
+a
+</li>
+</ol>
+<ol start="10" type="a">
+<li>
+d
+</li>
+</ol>
+```

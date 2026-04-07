@@ -1,0 +1,38 @@
+Link definitions must not be parsed too greedily
+
+```
+[foo][bar]: click me
+
+[bar]: https://example.com
+.
+<p><a href="https://example.com">foo</a>: click me</p>
+```
+
+Link definitions (i.e. pre-pass) supports repeated attribute specifiers
+
+```
+[foo][bar]: click me
+
+{title="Example link"}
+{rel="external"}
+[bar]: https://example.com
+.
+<p><a href="https://example.com" title="Example link" rel="external">foo</a>: click me</p>
+```
+
+Link definitions should be unicode-aware
+
+```
+[花](https://example.com)
+
+[花花](https://example.com)
+
+[花花花](https://example.com)
+
+[花花花花](https://example.com)
+.
+<p><a href="https://example.com">花</a></p>
+<p><a href="https://example.com">花花</a></p>
+<p><a href="https://example.com">花花花</a></p>
+<p><a href="https://example.com">花花花花</a></p>
+```

@@ -1,0 +1,135 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  MSRV: 1.82
+
+jobs:
+  test_unit:
+    name: Unit test main crate (MSRV)
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout repo"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: "Setup toolchain"
+        run: |
+          rustup update $MSRV
+          rustup default $MSRV
+      - name: "Build"
+        run: |
+          cargo build -p jotdown
+      - name: "Run tests"
+        env:
+            RUSTDOCFLAGS: -D warnings
+        run: |
+          cargo test -p jotdown
+  test_unit_all:
+    name: Unit test all crates (stable)
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout repo"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: "Setup toolchain"
+        run: |
+          rustup update stable
+          rustup default stable
+      - name: "Build"
+        run: |
+          make all
+          cargo build --workspace --no-default-features
+      - name: "Run tests"
+        env:
+            RUSTDOCFLAGS: -D warnings
+        run: |
+          make check
+  test_html:
+    name: Build and run HTML tests (MSRV)
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout repo"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: "Setup toolchain"
+        run: |
+          rustup update $MSRV
+          rustup default $MSRV
+      - name: "Run HTML unit tests"
+        run: make test_html_ut
+      - name: "Setup node"
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: "Compare HTML with reference implementation"
+        run: make test_html_ref
+  lint:
+    name: Lint (stable)
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: "Setup toolchain"
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup component add rustfmt
+          rustup component add clippy
+      - name: "Check linting"
+        run: make lint
+  fuzz:
+    name: Fuzz (nightly)
+    strategy:
+      matrix:
+        target:
+          - parse
+          - html
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: "Setup toolchain"
+        run: |
+          rustup update nightly
+          rustup default nightly
+          cargo install cargo-afl
+      - name: "Fuzz"
+        run: |
+          echo core | sudo tee /proc/sys/kernel/core_pattern
+          AFL_TARGET=${{ matrix.target }} make afl_quick
+  bench:
+    name: Benchmark (stable)
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout repo"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: "Setup toolchain"
+        run: |
+          rustup update stable
+          rustup default stable
+          sudo apt-get update
+          sudo apt-get install valgrind
+      - name: "Fetch benchmark inputs"
+        run: make bench
+      - name: "Benchmark"
+        run: |
+          cargo bench -p bench-crit all > crit
+      - name: "Artifact results"
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark
+          path: |
+            crit
