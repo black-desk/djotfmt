@@ -89,6 +89,7 @@ impl<'a> Writer<'a> {
             self.wrap(out)?;
         } else if self.space_after_pending_word {
             self.pending_line.write_str(" ")?;
+            log::trace!("Pending line: {:?}", self.pending_line);
         }
 
         self.prefix()?;
@@ -114,9 +115,12 @@ impl<'a> Writer<'a> {
     where
         W: std::fmt::Write,
     {
+        log::trace!("Wrap");
         out.write_str(self.pending_line.trim_end())?;
         out.write_str("\n")?;
         self.pending_line.clear();
+        self.space_after_pending_word = false;
+        log::trace!("Pending line: {:?}", self.pending_line);
         Ok(())
     }
 
@@ -269,6 +273,7 @@ impl<'a> Writer<'a> {
                             self.push_raw("]:")?;
                             self.wrap(&mut out)?;
                             self.prefix.push("  ".to_string());
+                            log::trace!("Prefix: {:?}", self.prefix);
                         }
                         jotdown::Container::Table => (),
                         jotdown::Container::TableRow { head } => {
@@ -517,36 +522,66 @@ impl<'a> Writer<'a> {
                     }
 
                     if !self.attrs.is_empty() {
-                        out.write_str("{")?;
-                        for (k, v) in self.attrs.iter() {
+                        self.push_word("{")?;
+                        self.commit_word(true, &mut out)?;
+                        for (k, v) in self.attrs.clone().iter() {
                             match k {
                                 jotdown::AttributeKind::Class => {
-                                    out.write_str(" .")?;
+                                    self.push_word(".")?;
                                 }
                                 jotdown::AttributeKind::Id => {
-                                    out.write_str(" #")?;
+                                    self.push_word("#")?;
                                 }
                                 jotdown::AttributeKind::Pair { key } => {
-                                    out.write_str(key.as_ref())?;
-                                    out.write_str(" =")?;
+                                    self.push_word(key.as_ref())?;
+                                    self.push_word("=")?;
                                 }
                                 jotdown::AttributeKind::Comment => {
-                                    out.write_str(" %")?;
+                                    self.push_word("%")?;
+                                    self.commit_word(true, &mut out)?;
                                 }
                             }
                             for part in v.parts() {
-                                out.write_str(part)?;
+                                match k {
+                                    jotdown::AttributeKind::Class => (),
+                                    jotdown::AttributeKind::Id => (),
+                                    jotdown::AttributeKind::Pair { key: _ } => {
+                                        self.push_word("\"")?;
+                                    },
+                                    jotdown::AttributeKind::Comment => {
+                                        self.commit_word(true, &mut out)?;
+                                    }
+                                }
+                                self.push_word(part)?;
+                                match k {
+                                    jotdown::AttributeKind::Class => (),
+                                    jotdown::AttributeKind::Id => (),
+                                    jotdown::AttributeKind::Pair { key: _ } => {
+                                        self.push_word("\"")?;
+                                    },
+                                    jotdown::AttributeKind::Comment => {
+                                        self.commit_word(true, &mut out)?;
+                                    }
+                                }
                             }
                             match k {
-                                jotdown::AttributeKind::Class => (),
-                                jotdown::AttributeKind::Id => (),
-                                jotdown::AttributeKind::Pair { key: _ } => (),
+                                jotdown::AttributeKind::Class => {
+                                    self.commit_word(true, &mut out)?;
+                                }
+                                jotdown::AttributeKind::Id => {
+                                    self.commit_word(true, &mut out)?;
+                                }
+                                jotdown::AttributeKind::Pair { key: _ } => {
+                                    self.commit_word(true, &mut out)?;
+                                }
                                 jotdown::AttributeKind::Comment => {
-                                    out.write_str("%")?;
+                                    self.push_word("%")?;
+                                    self.commit_word(true, &mut out)?;
                                 }
                             }
                         }
-                        out.write_str("}")?;
+                        self.push_word("}")?;
+                        self.commit_word(true, &mut out)?;
                     }
                     self.attrs = jotdown::Attributes::new();
                 }
