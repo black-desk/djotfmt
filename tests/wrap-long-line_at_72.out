@@ -6,5 +6,5 @@
 
 A very very very very very very very very very very very very very very
 very very very very very very very very very very very very very very
-very very very very very very very very very long line that should be
-wrapped at 72 characters.
+very very very very very very very very very very long [line]{ .with
+.attributes } that should be wrapped at 72 characters.
