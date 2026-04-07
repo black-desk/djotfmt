@@ -611,7 +611,9 @@ impl<'a> Writer<'a> {
                                 continue;
                             }
 
-                            self.commit_word(true, &mut out)?;
+                            if !self.pending_word.is_empty() {
+                                self.commit_word(true, &mut out)?;
+                            }
 
                             space = true;
                         }
