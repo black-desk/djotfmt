@@ -5,3 +5,11 @@ path = "tests/**"
 precedence = "override"
 SPDX-FileCopyrightText = "2026 Chen Linxuan <me@black-desk.cn>"
 SPDX-License-Identifier = "GPL-3.0-or-later"
+
+[[annotations]]
+path = "third_party/jotdown/**"
+SPDX-FileCopyrightText = [
+	"2024-2025 Noah Hellman <noah@hllmn.net>",
+	"2026 Chen Linxuan <me@black-desk.cn>",
+]
+SPDX-License-Identifier = "MIT"
