@@ -13,3 +13,5 @@ Remove    extra spaces in normal text.
 Remove extra spaces in text{.attributes   }
 
 Remove extra spaces in {_important   text_}{  .with key="value"   }
+
+Remove extra spaces in {% comments   %}
