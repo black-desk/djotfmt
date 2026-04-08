@@ -135,7 +135,7 @@ impl<'a> Writer<'a> {
         Ok(())
     }
 
-    fn blankline<W>(&mut self, out: W) -> std::fmt::Result
+    fn blankline<W>(&mut self, mut out: W) -> std::fmt::Result
     where
         W: std::fmt::Write,
     {
@@ -161,7 +161,7 @@ impl<'a> Writer<'a> {
         for e in events {
             let (e, range) = e;
             log::debug!("Event: {:?}", e);
-            log::debug!("Source: {:?}", &self.source[range]);
+            log::debug!("Source: {:?}", &self.source[range.clone()]);
 
             match e {
                 jotdown::Event::Start(container, attributes) => {
@@ -384,7 +384,6 @@ impl<'a> Writer<'a> {
                             self.list_kind.pop();
                         }
                         jotdown::Container::ListItem => {
-                            self.need_blankline = true;
                             self.prefix.pop();
                             log::trace!("Prefix: {:?}", self.prefix);
                         }
@@ -538,30 +537,48 @@ impl<'a> Writer<'a> {
                                 }
                                 jotdown::AttributeKind::Comment => {
                                     self.push_word("%")?;
-                                    self.commit_word(true, &mut out)?;
                                 }
                             }
+                            log::trace!("v: {:?}", v);
                             for part in v.parts() {
+                                log::trace!("parts: {:?}", part);
                                 match k {
                                     jotdown::AttributeKind::Class => (),
                                     jotdown::AttributeKind::Id => (),
                                     jotdown::AttributeKind::Pair { key: _ } => {
                                         self.push_word("\"")?;
-                                    },
+                                    }
                                     jotdown::AttributeKind::Comment => {
                                         self.commit_word(true, &mut out)?;
                                     }
                                 }
-                                self.push_word(part)?;
+
+                                let mut space = false;
+                                for char in part.chars() {
+                                    if !char.is_whitespace() {
+                                        space = false;
+                                        self.push_word(char.to_string().as_str())?;
+                                        continue;
+                                    }
+
+                                    if space {
+                                        continue;
+                                    }
+
+                                    if !self.pending_word.is_empty() {
+                                        self.commit_word(true, &mut out)?;
+                                    }
+
+                                    space = true;
+                                }
+
                                 match k {
                                     jotdown::AttributeKind::Class => (),
                                     jotdown::AttributeKind::Id => (),
                                     jotdown::AttributeKind::Pair { key: _ } => {
                                         self.push_word("\"")?;
-                                    },
-                                    jotdown::AttributeKind::Comment => {
-                                        self.commit_word(true, &mut out)?;
                                     }
+                                    jotdown::AttributeKind::Comment => (),
                                 }
                             }
                             match k {
@@ -646,7 +663,9 @@ impl<'a> Writer<'a> {
                     self.wrap(&mut out)?;
                 }
                 jotdown::Event::Escape => out.write_str("\\")?,
-                jotdown::Event::Blankline => (),
+                jotdown::Event::Blankline => {
+                    self.blankline(&mut out)?;
+                }
                 jotdown::Event::ThematicBreak(attributes) => {
                     self.blankline(&mut out)?;
                     self.prefix()?;
@@ -661,38 +680,91 @@ impl<'a> Writer<'a> {
                 jotdown::Event::Attributes(attributes) => {
                     self.blankline(&mut out)?;
                     self.prefix()?;
-                    out.write_str("{")?;
-                    for (k, v) in attributes {
+                    self.push_word("{")?;
+                    self.commit_word(true, &mut out)?;
+                    for (k, v) in attributes.iter() {
                         match k {
                             jotdown::AttributeKind::Class => {
-                                out.write_str(" .")?;
+                                self.push_word(".")?;
                             }
                             jotdown::AttributeKind::Id => {
-                                out.write_str(" #")?;
+                                self.push_word("#")?;
                             }
-                            jotdown::AttributeKind::Pair { ref key } => {
-                                out.write_str(" ")?;
-                                out.write_str(key.as_ref())?;
-                                out.write_str("=")?;
+                            jotdown::AttributeKind::Pair { key } => {
+                                self.push_word(key.as_ref())?;
+                                self.push_word("=")?;
                             }
                             jotdown::AttributeKind::Comment => {
-                                out.write_str("%")?;
+                                self.push_word("%")?;
                             }
                         }
+                        log::trace!("v: {:?}", v);
                         for part in v.parts() {
-                            out.write_str(part)?;
+                            log::trace!("parts: {:?}", part);
+                            match k {
+                                jotdown::AttributeKind::Class => (),
+                                jotdown::AttributeKind::Id => (),
+                                jotdown::AttributeKind::Pair { key: _ } => {
+                                    self.push_word("\"")?;
+                                }
+                                jotdown::AttributeKind::Comment => {
+                                    self.commit_word(true, &mut out)?;
+                                }
+                            }
+
+                            let mut space = false;
+                            for char in part.chars() {
+                                if !char.is_whitespace() {
+                                    space = false;
+                                    self.push_word(char.to_string().as_str())?;
+                                    continue;
+                                }
+
+                                if space {
+                                    continue;
+                                }
+
+                                if !self.pending_word.is_empty() {
+                                    self.commit_word(true, &mut out)?;
+                                }
+
+                                space = true;
+                            }
+
+                            match k {
+                                jotdown::AttributeKind::Class => (),
+                                jotdown::AttributeKind::Id => (),
+                                jotdown::AttributeKind::Pair { key: _ } => {
+                                    self.push_word("\"")?;
+                                }
+                                jotdown::AttributeKind::Comment => {
+                                    // self.commit_word(true, &mut out)?;
+                                }
+                            }
                         }
                         match k {
-                            jotdown::AttributeKind::Class => (),
-                            jotdown::AttributeKind::Id => (),
-                            jotdown::AttributeKind::Pair { key: _ } => (),
+                            jotdown::AttributeKind::Class => {
+                                self.commit_word(true, &mut out)?;
+                            }
+                            jotdown::AttributeKind::Id => {
+                                self.commit_word(true, &mut out)?;
+                            }
+                            jotdown::AttributeKind::Pair { key: _ } => {
+                                self.commit_word(true, &mut out)?;
+                            }
                             jotdown::AttributeKind::Comment => {
-                                out.write_str("%")?;
+                                self.push_word("%")?;
+                                self.commit_word(true, &mut out)?;
                             }
                         }
                     }
-                    out.write_str("}\n")?;
-                    self.need_blankline = true;
+                    self.push_word("}")?;
+                    self.commit_word(true, &mut out)?;
+                    if self.source[range].ends_with("\n") {
+                        log::trace!("Attributes ends with \\n");
+                        self.wrap(&mut out)?;
+                        self.need_blankline = true;
+                    }
                 }
             }
         }
