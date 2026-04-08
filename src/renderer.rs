@@ -770,6 +770,7 @@ impl<'a> Writer<'a> {
                     self.commit_word(true, &mut out)?;
                     if !self.source[range.clone()].ends_with("}") {
                         self.prefix.push(" ".to_string());
+                        log::trace!("Prefix: {:?}", self.prefix);
                     }
                     for (k, v) in attributes.iter() {
                         match k {
@@ -851,7 +852,7 @@ impl<'a> Writer<'a> {
                     self.commit_word(true, &mut out)?;
                     if !self.source[range].ends_with("}") {
                         self.prefix.pop();
-                        log::trace!("Attributes ends with \\n");
+                        log::trace!("Prefix: {:?}", self.prefix);
                         self.wrap(&mut out)?;
                         self.need_blankline = true;
                     }
