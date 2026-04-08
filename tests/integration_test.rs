@@ -25,6 +25,26 @@ fn test([input_path, expected]: [&std::path::Path; 2]) {
     assert_eq!(output.as_str(), expected);
 }
 
+test_each_path! { for ["out"] in "./tests/" as idempotent => test_idempotent }
+
+fn test_idempotent([path]: [&std::path::Path; 1]) {
+    let input = std::fs::read_to_string(path).unwrap();
+
+    let max_cols = parse_max_cols_from_filename(path);
+    let config = WriterConfig { max_cols };
+
+    let mut output = String::new();
+    djotfmt::Renderer::new(&input)
+        .push_offset(
+            jotdown::Parser::new(&input).into_offset_iter(),
+            &mut output,
+            &config,
+        )
+        .unwrap();
+
+    assert_eq!(output.as_str(), input);
+}
+
 fn parse_max_cols_from_filename(path: &std::path::Path) -> usize {
     path.file_stem()
         .and_then(|s| s.to_str())
