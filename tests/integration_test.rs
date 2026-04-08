@@ -5,13 +5,13 @@ use test_each_file::test_each_path;
 test_each_path! { for ["in", "out"] in "./tests/" => test }
 
 fn test([input_path, expected]: [&std::path::Path; 2]) {
-    let mut output = String::new();
-
     let input = std::fs::read_to_string(input_path).unwrap();
+    let expected = std::fs::read_to_string(&expected).unwrap();
 
-    let max_cols = parse_max_cols_from_filename(input_path);
+    let max_cols = parse_max_cols(&input);
     let config = WriterConfig { max_cols };
 
+    let mut output = String::new();
     djotfmt::Renderer::new(&input)
         .push_offset(
             jotdown::Parser::new(&input).into_offset_iter(),
@@ -20,9 +20,7 @@ fn test([input_path, expected]: [&std::path::Path; 2]) {
         )
         .unwrap();
 
-    let expected = std::fs::read_to_string(&expected).unwrap();
-
-    assert_eq!(output.as_str(), expected);
+    assert_eq!(output, expected);
 }
 
 test_each_path! { for ["out"] in "./tests/" as idempotent => test_idempotent }
@@ -30,7 +28,7 @@ test_each_path! { for ["out"] in "./tests/" as idempotent => test_idempotent }
 fn test_idempotent([path]: [&std::path::Path; 1]) {
     let input = std::fs::read_to_string(path).unwrap();
 
-    let max_cols = parse_max_cols_from_filename(path);
+    let max_cols = parse_max_cols(&input);
     let config = WriterConfig { max_cols };
 
     let mut output = String::new();
@@ -42,13 +40,23 @@ fn test_idempotent([path]: [&std::path::Path; 1]) {
         )
         .unwrap();
 
-    assert_eq!(output.as_str(), input);
+    assert_eq!(output, input);
 }
 
-fn parse_max_cols_from_filename(path: &std::path::Path) -> usize {
-    path.file_stem()
-        .and_then(|s| s.to_str())
-        .and_then(|s| s.rsplit_once("_at_"))
-        .and_then(|(_, cols)| cols.parse().ok())
-        .unwrap_or(72)
+fn parse_max_cols(content: &str) -> usize {
+    let mut max_cols = 72;
+    for line in content.lines() {
+        if let Some(idx) = line.find("@columns:") {
+            let rest = &line[idx + "@columns:".len()..];
+            let num = rest
+                .trim_start()
+                .split(|c: char| !c.is_ascii_digit())
+                .next()
+                .unwrap_or("");
+            if let Ok(cols) = num.parse::<usize>() {
+                max_cols = cols;
+            }
+        }
+    }
+    max_cols
 }
