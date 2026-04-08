@@ -10,7 +10,8 @@ This formatter should handle nested attributes.
 > Some common text and [other text]{ .with some=attributes }
 
 
-{ .should .keep attributes=which #is .not attached=to any=elements .here }
+{ .should .keep attributes=which #is .not attached=to any=elements .here
+ }
 
 > { .and .here }
 >
