@@ -4,6 +4,7 @@
 
 use std::fmt::Write;
 
+use jotdown::Attributes;
 use unicode_width::UnicodeWidthStr;
 
 pub struct Renderer<'a> {
@@ -167,6 +168,91 @@ impl<'a> Writer<'a> {
                 jotdown::Event::Start(container, attributes) => {
                     self.attrs = attributes;
                     log::debug!("Attributes: {:?}", self.attrs);
+
+                    if !self.attrs.is_empty() && container.is_block() {
+                        self.push_word("{")?;
+                        self.commit_word(true, &mut out)?;
+                        for (k, v) in self.attrs.clone().iter() {
+                            match k {
+                                jotdown::AttributeKind::Class => {
+                                    self.push_word(".")?;
+                                }
+                                jotdown::AttributeKind::Id => {
+                                    self.push_word("#")?;
+                                }
+                                jotdown::AttributeKind::Pair { key } => {
+                                    self.push_word(key.as_ref())?;
+                                    self.push_word("=")?;
+                                }
+                                jotdown::AttributeKind::Comment => {
+                                    self.push_word("%")?;
+                                }
+                            }
+                            log::trace!("v: {:?}", v);
+                            for part in v.parts() {
+                                log::trace!("parts: {:?}", part);
+                                match k {
+                                    jotdown::AttributeKind::Class => (),
+                                    jotdown::AttributeKind::Id => (),
+                                    jotdown::AttributeKind::Pair { key: _ } => {
+                                        self.push_word("\"")?;
+                                    }
+                                    jotdown::AttributeKind::Comment => {
+                                        self.commit_word(true, &mut out)?;
+                                    }
+                                }
+
+                                let mut space = false;
+                                for char in part.chars() {
+                                    if !char.is_whitespace() {
+                                        space = false;
+                                        self.push_word(char.to_string().as_str())?;
+                                        continue;
+                                    }
+
+                                    if space {
+                                        continue;
+                                    }
+
+                                    if !self.pending_word.is_empty() {
+                                        self.commit_word(true, &mut out)?;
+                                    }
+
+                                    space = true;
+                                }
+
+                                match k {
+                                    jotdown::AttributeKind::Class => (),
+                                    jotdown::AttributeKind::Id => (),
+                                    jotdown::AttributeKind::Pair { key: _ } => {
+                                        self.push_word("\"")?;
+                                    }
+                                    jotdown::AttributeKind::Comment => (),
+                                }
+                            }
+                            match k {
+                                jotdown::AttributeKind::Class => {
+                                    self.commit_word(true, &mut out)?;
+                                }
+                                jotdown::AttributeKind::Id => {
+                                    self.commit_word(true, &mut out)?;
+                                }
+                                jotdown::AttributeKind::Pair { key: _ } => {
+                                    self.commit_word(true, &mut out)?;
+                                }
+                                jotdown::AttributeKind::Comment => {
+                                    self.push_word("%")?;
+                                    self.commit_word(true, &mut out)?;
+                                }
+                            }
+                        }
+                        self.push_word("}")?;
+                        self.commit_word(true, &mut out)?;
+
+                        self.attrs = jotdown::Attributes::new();
+                        self.wrap(&mut out)?;
+                    }
+
                     match container {
                         jotdown::Container::Blockquote => {
                             self.blankline(&mut out)?;
