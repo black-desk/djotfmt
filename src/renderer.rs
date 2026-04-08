@@ -768,6 +768,9 @@ impl<'a> Writer<'a> {
                     self.prefix()?;
                     self.push_word("{")?;
                     self.commit_word(true, &mut out)?;
+                    if !self.source[range.clone()].ends_with("}") {
+                        self.prefix.push(" ".to_string());
+                    }
                     for (k, v) in attributes.iter() {
                         match k {
                             jotdown::AttributeKind::Class => {
@@ -846,7 +849,8 @@ impl<'a> Writer<'a> {
                     }
                     self.push_word("}")?;
                     self.commit_word(true, &mut out)?;
-                    if self.source[range].ends_with("\n") {
+                    if !self.source[range].ends_with("}") {
+                        self.prefix.pop();
                         log::trace!("Attributes ends with \\n");
                         self.wrap(&mut out)?;
                         self.need_blankline = true;

@@ -1,0 +1,21 @@
+{ % vim: set ft=djot : % }
+
+# Handle nested attributes
+
+This formatter should handle nested attributes.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+{ .warning }
+> Some common text and [other text]{ .with some="attributes" }
+
+{ .should .keep attributes="which" #is .not attached="to" any="elements"
+ .here }
+
+> { .and .here }
+>
+> Some common text
+
+{ .should .correctly .handle nested="attributes" .here }
+> { .and .here }
+> Some common text
