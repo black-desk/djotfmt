@@ -17,8 +17,3 @@ Remove extra spaces in {_important   text_}{  .with key="value"   }
 
 Remove extra spaces in inline {% comments   %} and{% comments in
    inline     attributes % .highlight}
-
-Remove extra spaces in
-
-{% comments   %}
-> in block attributes
