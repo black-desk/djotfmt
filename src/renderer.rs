@@ -349,7 +349,9 @@ impl<'a> Writer<'a> {
                                     width += 2;
                                     self.prefix.push(" ".repeat(width).to_string());
                                 }
-                                jotdown::ListKind::Task(list_bullet_type) => todo!(),
+                                jotdown::ListKind::Task(_) => unreachable!(
+                                    "task list items use TaskListItem container, not ListItem"
+                                ),
                             }
                         }
                         jotdown::Container::TaskListItem { checked } => {
@@ -759,7 +761,9 @@ impl<'a> Writer<'a> {
                 jotdown::Event::Ellipsis => self.push_word("...")?,
                 jotdown::Event::EnDash => self.push_word("--")?,
                 jotdown::Event::EmDash => self.push_word("---")?,
-                jotdown::Event::NonBreakingSpace => todo!(),
+                jotdown::Event::NonBreakingSpace => {
+                    self.push_word(" ")?;
+                }
                 jotdown::Event::Softbreak => {
                     self.commit_word(false, &mut out)?;
                     self.wrap(&mut out)?;
@@ -768,7 +772,7 @@ impl<'a> Writer<'a> {
                     self.commit_word(false, &mut out)?;
                     self.wrap(&mut out)?;
                 }
-                jotdown::Event::Escape => out.write_str("\\")?,
+                jotdown::Event::Escape => self.push_word("\\")?,
                 jotdown::Event::Blankline => {
                     self.blankline(&mut out)?;
                 }
