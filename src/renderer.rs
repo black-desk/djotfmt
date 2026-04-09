@@ -4,7 +4,6 @@
 
 use std::fmt::Write;
 
-use jotdown::Attributes;
 use unicode_width::UnicodeWidthStr;
 
 pub struct Renderer<'a> {
@@ -345,7 +344,16 @@ impl<'a> Writer<'a> {
                                 jotdown::ListKind::Task(list_bullet_type) => todo!(),
                             }
                         }
-                        jotdown::Container::TaskListItem { checked } => todo!(),
+                        jotdown::Container::TaskListItem { checked } => {
+                            self.push_raw("- [")?;
+                            if checked {
+                                self.push_raw("x")?;
+                            }else{
+                                self.push_raw(" ")?;
+                            }
+                            self.push_raw("] ")?;
+                            self.prefix.push("      ".to_string());
+                        },
                         jotdown::Container::DescriptionList => (),
                         jotdown::Container::DescriptionDetails => {
                             self.prefix.push("  ".to_string());
@@ -473,7 +481,9 @@ impl<'a> Writer<'a> {
                             self.prefix.pop();
                             log::trace!("Prefix: {:?}", self.prefix);
                         }
-                        jotdown::Container::TaskListItem { checked } => todo!(),
+                        jotdown::Container::TaskListItem { checked } => {
+                            self.prefix.pop();
+                        },
                         jotdown::Container::DescriptionList => (),
                         jotdown::Container::DescriptionDetails => {
                             self.prefix.pop();
