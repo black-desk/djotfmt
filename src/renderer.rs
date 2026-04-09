@@ -37,6 +37,7 @@ impl<'a> Renderer<'a> {
 
 struct Writer<'a> {
     attrs: jotdown::Attributes<'a>,
+    stack: Vec<bool>,
     list_index: Vec<u64>,
     list_kind: Vec<jotdown::ListKind>,
     need_blankline: bool,
@@ -53,6 +54,7 @@ impl<'a> Writer<'a> {
     pub fn new(s: &'a str, config: &WriterConfig) -> Self {
         Self {
             attrs: jotdown::Attributes::new(),
+            stack: Vec::new(),
             list_index: Vec::new(),
             list_kind: Vec::new(),
             need_blankline: false,
@@ -167,7 +169,13 @@ impl<'a> Writer<'a> {
                 jotdown::Event::Start(container, attributes) => {
                     self.attrs = attributes;
                     log::debug!("Attributes: {:?}", self.attrs);
-
+                    match container {
+                        jotdown::Container::Paragraph => {
+                            self.stack.push(true);
+                        }
+                        _ => {}
+                    }
+                    log::debug!("stack: {:?}", self.stack);
                     if !self.attrs.is_empty() && container.is_block() {
                         self.push_word("{")?;
                         self.commit_word(true, &mut out)?;
@@ -348,12 +356,12 @@ impl<'a> Writer<'a> {
                             self.push_raw("- [")?;
                             if checked {
                                 self.push_raw("x")?;
-                            }else{
+                            } else {
                                 self.push_raw(" ")?;
                             }
                             self.push_raw("] ")?;
                             self.prefix.push("      ".to_string());
-                        },
+                        }
                         jotdown::Container::DescriptionList => (),
                         jotdown::Container::DescriptionDetails => {
                             self.prefix.push("  ".to_string());
@@ -468,6 +476,8 @@ impl<'a> Writer<'a> {
                     }
                 }
                 jotdown::Event::End(container) => {
+                    self.stack.pop();
+                    log::debug!("stack: {:?}", self.stack);
                     match container {
                         jotdown::Container::Blockquote => {
                             self.prefix.pop();
@@ -483,7 +493,7 @@ impl<'a> Writer<'a> {
                         }
                         jotdown::Container::TaskListItem { checked } => {
                             self.prefix.pop();
-                        },
+                        }
                         jotdown::Container::DescriptionList => (),
                         jotdown::Container::DescriptionDetails => {
                             self.prefix.pop();
@@ -778,9 +788,21 @@ impl<'a> Writer<'a> {
                     self.prefix()?;
                     self.push_word("{")?;
                     self.commit_word(true, &mut out)?;
-                    if !self.source[range.clone()].ends_with("}") {
-                        self.prefix.push(" ".to_string());
-                        log::trace!("Prefix: {:?}", self.prefix);
+
+                    match self.stack.last() {
+                        Some(is_para) => {
+                            log::trace!("is_para: {:?}", is_para);
+                            if *is_para {
+                                self.prefix.push(" ".to_string());
+                                log::trace!("Prefix: {:?}", self.prefix);
+                                self.blankline(&mut out)?;
+                            }
+                        }
+                        None => {
+                            self.prefix.push(" ".to_string());
+                            log::trace!("Prefix: {:?}", self.prefix);
+                            self.blankline(&mut out)?;
+                        }
                     }
                     for (k, v) in attributes.iter() {
                         match k {
@@ -860,11 +882,22 @@ impl<'a> Writer<'a> {
                     }
                     self.push_word("}")?;
                     self.commit_word(true, &mut out)?;
-                    if !self.source[range].ends_with("}") {
-                        self.prefix.pop();
-                        log::trace!("Prefix: {:?}", self.prefix);
-                        self.wrap(&mut out)?;
-                        self.need_blankline = true;
+
+                    match self.stack.last() {
+                        Some(is_para) => {
+                            log::trace!("is_para: {:?}", is_para);
+                            if *is_para {
+                                self.prefix.pop();
+                                log::trace!("Prefix: {:?}", self.prefix);
+                            }
+                        }
+                        None => {
+                            self.prefix.pop();
+                            log::trace!("Prefix: {:?}", self.prefix);
+                            self.need_blankline = true;
+                            self.blankline(&mut out)?;
+                            self.need_blankline = true;
+                        }
                     }
                 }
             }
