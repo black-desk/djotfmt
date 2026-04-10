@@ -48,6 +48,7 @@ struct Writer<'a> {
     space_after_pending_word: bool,
     source: &'a str,
     max_cols: usize,
+    no_wrap: bool,
 }
 
 impl<'a> Writer<'a> {
@@ -65,6 +66,7 @@ impl<'a> Writer<'a> {
             pending_word: std::string::String::new(),
             space_after_pending_word: false,
             max_cols: config.max_cols,
+            no_wrap: false,
         }
     }
 
@@ -87,7 +89,7 @@ impl<'a> Writer<'a> {
         length += self.pending_word.width();
         let length = length;
 
-        if length > self.max_cols && !self.pending_line.is_empty() {
+        if !self.no_wrap && length > self.max_cols && !self.pending_line.is_empty() {
             self.wrap(out)?;
         } else if self.space_after_pending_word {
             self.pending_line.write_str(" ")?;
@@ -381,6 +383,7 @@ impl<'a> Writer<'a> {
                         }
                         jotdown::Container::Table => (),
                         jotdown::Container::TableRow { head } => {
+                            self.no_wrap = true;
                             self.prefix()?;
                             self.push_raw("|")?;
                         }
@@ -506,10 +509,13 @@ impl<'a> Writer<'a> {
                             log::trace!("Prefix: {:?}", self.prefix);
                         }
                         jotdown::Container::Table => {
-                            self.wrap(&mut out)?;
+                            if !self.pending_line.is_empty() {
+                                self.wrap(&mut out)?;
+                            }
                             self.need_blankline = true;
                         }
                         jotdown::Container::TableRow { head } => {
+                            self.no_wrap = false;
                             self.wrap(&mut out)?;
                             self.prefix()?;
                             if head {
