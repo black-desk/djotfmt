@@ -510,7 +510,6 @@ impl<'a> Writer<'a> {
                             self.need_blankline = true;
                         }
                         jotdown::Container::TableRow { head } => {
-                            out.write_str("\n")?;
                             self.wrap(&mut out)?;
                             self.prefix()?;
                             if head {
@@ -543,7 +542,10 @@ impl<'a> Writer<'a> {
                             log::trace!("Prefix: {:?}", self.prefix);
                             self.need_blankline = true;
                         }
-                        jotdown::Container::TableCell { alignment, head } => {
+                        jotdown::Container::TableCell { alignment: _, head: _ } => {
+                            if !self.pending_word.is_empty() {
+                                self.commit_word(false, &mut out)?;
+                            }
                             self.push_raw(" |")?;
                         }
                         jotdown::Container::Caption => todo!(),
