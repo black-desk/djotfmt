@@ -2,3 +2,5 @@
 
 | This | formatter | should |
 | handle | simple | table |
+
+| This | formatter | should | never | wrap | long | long | long | table | line |
