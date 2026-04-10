@@ -1,0 +1,4 @@
+{ % vim: set ft=djot : % }
+
+| This | formatter | should |
+| handle | simple | table |
