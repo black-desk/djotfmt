@@ -14,6 +14,7 @@
 |-|-|
 | should | handle |
 | *table* | header |
+^ A very long long long long long long long long *long long long long long* table caption
 
 > | This | formatter |
 > | should | handle |
