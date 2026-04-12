@@ -14,6 +14,36 @@ pub struct WriterConfig {
     pub max_cols: usize,
 }
 
+struct TableCellData {
+    content: String,
+    alignment: jotdown::Alignment,
+}
+
+struct TableRowData {
+    cells: Vec<TableCellData>,
+    is_head: bool,
+}
+
+struct TableData {
+    rows: Vec<TableRowData>,
+    current_row_cells: Vec<TableCellData>,
+    current_cell_content: String,
+    current_cell_alignment: jotdown::Alignment,
+    current_row_is_head: bool,
+}
+
+impl TableData {
+    fn new() -> Self {
+        Self {
+            rows: Vec::new(),
+            current_row_cells: Vec::new(),
+            current_cell_content: String::new(),
+            current_cell_alignment: jotdown::Alignment::Unspecified,
+            current_row_is_head: false,
+        }
+    }
+}
+
 impl<'a> Renderer<'a> {
     pub fn new(s: &'a str) -> Self {
         Self { source: s }
@@ -49,6 +79,7 @@ struct Writer<'a> {
     source: &'a str,
     max_cols: usize,
     no_wrap: bool,
+    table_data: Option<TableData>,
 }
 
 impl<'a> Writer<'a> {
@@ -67,6 +98,7 @@ impl<'a> Writer<'a> {
             space_after_pending_word: false,
             max_cols: config.max_cols,
             no_wrap: false,
+            table_data: None,
         }
     }
 
@@ -120,6 +152,12 @@ impl<'a> Writer<'a> {
         W: std::fmt::Write,
     {
         log::trace!("Wrap");
+        if self.table_data.is_some() {
+            // In table mode, don't write to out.
+            // Cell content accumulates in pending_line and is
+            // extracted at End(TableCell).
+            return Ok(());
+        }
         out.write_str(self.pending_line.trim_end())?;
         out.write_str("\n")?;
         self.pending_line.clear();
@@ -151,6 +189,112 @@ impl<'a> Writer<'a> {
         self.wrap(out)?;
 
         self.need_blankline = false;
+
+        Ok(())
+    }
+
+    fn pad_content(content: &str, width: usize, alignment: jotdown::Alignment) -> String {
+        let content_width = content.width();
+        if content_width >= width {
+            return content.to_string();
+        }
+        let padding = width - content_width;
+        match alignment {
+            jotdown::Alignment::Unspecified | jotdown::Alignment::Left => {
+                format!("{}{}", content, " ".repeat(padding))
+            }
+            jotdown::Alignment::Right => {
+                format!("{}{}", " ".repeat(padding), content)
+            }
+            jotdown::Alignment::Center => {
+                let left = padding / 2;
+                let right = padding - left;
+                format!(
+                    "{}{}{}",
+                    " ".repeat(left),
+                    content,
+                    " ".repeat(right)
+                )
+            }
+        }
+    }
+
+    fn format_separator_cell(width: usize, alignment: jotdown::Alignment) -> String {
+        let total = width + 2; // +2 for the space margin on each side
+        match alignment {
+            jotdown::Alignment::Unspecified => "-".repeat(total),
+            jotdown::Alignment::Left => format!(":{}", "-".repeat(total - 1)),
+            jotdown::Alignment::Right => format!("{}:", "-".repeat(total - 1)),
+            jotdown::Alignment::Center => format!(":{}:", "-".repeat(total - 2)),
+        }
+    }
+
+    fn render_table<W: std::fmt::Write>(
+        &mut self,
+        td: TableData,
+        out: &mut W,
+    ) -> std::fmt::Result {
+        let num_cols = td.rows.iter().map(|r| r.cells.len()).max().unwrap_or(0);
+        if num_cols == 0 {
+            return Ok(());
+        }
+
+        // Compute max width per column
+        let mut col_widths = vec![0usize; num_cols];
+        for row in &td.rows {
+            for (i, cell) in row.cells.iter().enumerate() {
+                let w = cell.content.width();
+                if w > col_widths[i] {
+                    col_widths[i] = w;
+                }
+            }
+        }
+
+        // Render rows
+        let mut prev_was_head = false;
+        for (row_idx, row) in td.rows.iter().enumerate() {
+            // Insert separator at head→body transition
+            if prev_was_head && !row.is_head {
+                // Find the head rows immediately before this transition
+                let mut head_start = row_idx;
+                while head_start > 0 && td.rows[head_start - 1].is_head {
+                    head_start -= 1;
+                }
+
+                self.prefix()?;
+                for (i, width) in col_widths.iter().enumerate() {
+                    // Get first non-Unspecified alignment from these head rows
+                    let alignment = td.rows[head_start..row_idx]
+                        .iter()
+                        .find_map(|r| {
+                            r.cells.get(i).and_then(|c| {
+                                if c.alignment != jotdown::Alignment::Unspecified {
+                                    Some(c.alignment)
+                                } else {
+                                    None
+                                }
+                            })
+                        })
+                        .unwrap_or(jotdown::Alignment::Unspecified);
+                    out.write_str("|")?;
+                    out.write_str(&Self::format_separator_cell(*width, alignment))?;
+                }
+                out.write_str("|\n")?;
+            }
+
+            self.prefix()?;
+            for (i, width) in col_widths.iter().enumerate() {
+                let cell = row.cells.get(i);
+                let content = cell.map(|c| c.content.as_str()).unwrap_or("");
+                let alignment = cell.map(|c| c.alignment).unwrap_or(jotdown::Alignment::Unspecified);
+                let padded = Self::pad_content(content, *width, alignment);
+                out.write_str("| ")?;
+                out.write_str(&padded)?;
+                out.write_str(" ")?;
+            }
+            out.write_str("|\n")?;
+            prev_was_head = row.is_head;
+        }
 
         Ok(())
     }
@@ -381,11 +525,15 @@ impl<'a> Writer<'a> {
                             self.prefix.push("  ".to_string());
                             log::trace!("Prefix: {:?}", self.prefix);
                         }
-                        jotdown::Container::Table => (),
+                        jotdown::Container::Table => {
+                            self.table_data = Some(TableData::new());
+                        }
                         jotdown::Container::TableRow { head } => {
+                            if let Some(ref mut td) = self.table_data {
+                                td.current_row_is_head = head;
+                                td.current_row_cells.clear();
+                            }
                             self.no_wrap = true;
-                            self.prefix()?;
-                            self.push_raw("|")?;
                         }
                         jotdown::Container::Section { id } => (),
                         jotdown::Container::Div { class } => {
@@ -411,7 +559,15 @@ impl<'a> Writer<'a> {
                             self.prefix.push(" ".repeat(level as usize + 1).to_string());
                             log::trace!("Prefix: {:?}", self.prefix);
                         }
-                        jotdown::Container::TableCell { alignment, head } => self.push_raw(" ")?,
+                        jotdown::Container::TableCell { alignment, head: _ } => {
+                            if let Some(ref mut td) = self.table_data {
+                                td.current_cell_alignment = alignment;
+                                td.current_cell_content.clear();
+                                self.pending_line.clear();
+                                self.pending_word.clear();
+                                self.space_after_pending_word = false;
+                            }
+                        }
                         jotdown::Container::Caption => todo!(),
                         jotdown::Container::DescriptionTerm => {
                             self.blankline(&mut out)?;
@@ -509,17 +665,22 @@ impl<'a> Writer<'a> {
                             log::trace!("Prefix: {:?}", self.prefix);
                         }
                         jotdown::Container::Table => {
-                            if !self.pending_line.is_empty() {
-                                self.wrap(&mut out)?;
+                            if self.table_data.is_some() {
+                                let td = self.table_data.take().unwrap();
+                                self.render_table(td, &mut out)?;
                             }
                             self.need_blankline = true;
                         }
-                        jotdown::Container::TableRow { head } => {
-                            self.no_wrap = false;
-                            self.wrap(&mut out)?;
-                            self.prefix()?;
-                            if head {
+                        jotdown::Container::TableRow { head: _ } => {
+                            if self.table_data.is_some() {
+                                let td = self.table_data.as_mut().unwrap();
+                                let cells = std::mem::take(&mut td.current_row_cells);
+                                let is_head = td.current_row_is_head;
+                                td.rows.push(TableRowData { cells, is_head });
+                            } else {
+                                self.no_wrap = false;
                                 self.wrap(&mut out)?;
+                                self.prefix()?;
                             }
                         }
                         jotdown::Container::Section { id: _ } => (),
@@ -549,10 +710,32 @@ impl<'a> Writer<'a> {
                             self.need_blankline = true;
                         }
                         jotdown::Container::TableCell { alignment: _, head: _ } => {
-                            if !self.pending_word.is_empty() {
-                                self.commit_word(false, &mut out)?;
+                            if self.table_data.is_some() {
+                                if !self.pending_word.is_empty() {
+                                    self.commit_word(false, &mut out)?;
+                                }
+                                let content = std::mem::take(&mut self.pending_line);
+                                let alignment = self
+                                    .table_data
+                                    .as_ref()
+                                    .unwrap()
+                                    .current_cell_alignment;
+                                self.table_data
+                                    .as_mut()
+                                    .unwrap()
+                                    .current_row_cells
+                                    .push(TableCellData {
+                                        content: content.trim_end().to_string(),
+                                        alignment,
+                                    });
+                                self.pending_line.clear();
+                                self.space_after_pending_word = false;
+                            } else {
+                                if !self.pending_word.is_empty() {
+                                    self.commit_word(false, &mut out)?;
+                                }
+                                self.push_raw(" |")?;
                             }
-                            self.push_raw(" |")?;
                         }
                         jotdown::Container::Caption => todo!(),
                         jotdown::Container::DescriptionTerm => self.wrap(&mut out)?,
