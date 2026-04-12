@@ -170,6 +170,9 @@ impl<'a> Writer<'a> {
         if !self.pending_line.is_empty() {
             return Ok(());
         }
+        if self.table_data.is_some() {
+            return Ok(());
+        }
 
         for prefix in self.prefix.iter() {
             self.pending_line.write_str(prefix)?;
@@ -262,6 +265,8 @@ impl<'a> Writer<'a> {
                 }
 
                 self.prefix()?;
+                out.write_str(&self.pending_line)?;
+                self.pending_line.clear();
                 for (i, width) in col_widths.iter().enumerate() {
                     // Get first non-Unspecified alignment from these head rows
                     let alignment = td.rows[head_start..row_idx]
@@ -283,6 +288,8 @@ impl<'a> Writer<'a> {
             }
 
             self.prefix()?;
+            out.write_str(&self.pending_line)?;
+            self.pending_line.clear();
             for (i, width) in col_widths.iter().enumerate() {
                 let cell = row.cells.get(i);
                 let content = cell.map(|c| c.content.as_str()).unwrap_or("");
