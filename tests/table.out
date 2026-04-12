@@ -1,6 +1,25 @@
 { % vim: set ft=djot : % }
 
-| This | formatter | should |
-| handle | simple | table |
+| This   | formatter | should |
+| handle | simple    | table  |
 
 | This | formatter | should | never | wrap | long | long | long | table | line |
+
+| This       | formatter |
+| should     | handle    |
+| incomplete | table     |
+| correctly  |           |
+
+| This      | formatter |
+|-----------|-----------|
+| should    | handle    |
+| {*table*} | header    |
+
+> | This      | formatter |
+> | should    |    handle |
+> |:----------|----------:|
+> | table     |    header |
+> |    in     | middle    |
+> |:---------:|-----------|
+> |    and    | alignment |
+> | correctly |           |
