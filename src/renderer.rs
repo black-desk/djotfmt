@@ -30,6 +30,8 @@ struct TableData {
     current_cell_content: String,
     current_cell_alignment: jotdown::Alignment,
     current_row_is_head: bool,
+    in_caption: bool,
+    caption: Option<String>,
 }
 
 impl TableData {
@@ -40,6 +42,8 @@ impl TableData {
             current_cell_content: String::new(),
             current_cell_alignment: jotdown::Alignment::Unspecified,
             current_row_is_head: false,
+            in_caption: false,
+            caption: None,
         }
     }
 }
@@ -301,6 +305,35 @@ impl<'a> Writer<'a> {
             }
             out.write_str("|\n")?;
             prev_was_head = row.is_head;
+        }
+
+        // Render caption after the table
+        if let Some(caption) = td.caption {
+            let first_prefix = "^ ";
+            let cont_prefix = "  ";
+            let prefix_width = 2;
+            let mut line_len = prefix_width;
+            self.prefix()?;
+            out.write_str(&self.pending_line)?;
+            self.pending_line.clear();
+            out.write_str(first_prefix)?;
+            for word in caption.split_whitespace() {
+                let word_width = word.width();
+                if line_len + 1 + word_width > self.max_cols && line_len > prefix_width {
+                    out.write_str("\n")?;
+                    self.prefix()?;
+                    out.write_str(&self.pending_line)?;
+                    self.pending_line.clear();
+                    out.write_str(cont_prefix)?;
+                    line_len = prefix_width;
+                } else if line_len > prefix_width {
+                    out.write_str(" ")?;
+                    line_len += 1;
+                }
+                out.write_str(word)?;
+                line_len += word_width;
+            }
+            out.write_str("\n")?;
         }
 
         Ok(())
@@ -575,7 +608,14 @@ impl<'a> Writer<'a> {
                                 self.space_after_pending_word = false;
                             }
                         }
-                        jotdown::Container::Caption => todo!(),
+                        jotdown::Container::Caption => {
+                            if self.table_data.is_some() {
+                                self.table_data.as_mut().unwrap().in_caption = true;
+                                self.pending_line.clear();
+                                self.pending_word.clear();
+                                self.space_after_pending_word = false;
+                            }
+                        }
                         jotdown::Container::DescriptionTerm => {
                             self.blankline(&mut out)?;
                             self.push_raw(": ")?;
@@ -744,7 +784,18 @@ impl<'a> Writer<'a> {
                                 self.push_raw(" |")?;
                             }
                         }
-                        jotdown::Container::Caption => todo!(),
+                        jotdown::Container::Caption => {
+                            if self.table_data.is_some() {
+                                if !self.pending_word.is_empty() {
+                                    self.commit_word(false, &mut out)?;
+                                }
+                                let content = std::mem::take(&mut self.pending_line);
+                                let td = self.table_data.as_mut().unwrap();
+                                td.caption = Some(content.trim_end().to_string());
+                                td.in_caption = false;
+                                self.space_after_pending_word = false;
+                            }
+                        }
                         jotdown::Container::DescriptionTerm => self.wrap(&mut out)?,
                         jotdown::Container::LinkDefinition { label } => {
                             self.commit_word(false, &mut out)?;
@@ -963,7 +1014,7 @@ impl<'a> Writer<'a> {
                     self.push_word(" ")?;
                 }
                 jotdown::Event::Softbreak => {
-                    self.commit_word(false, &mut out)?;
+                    self.commit_word(true, &mut out)?;
                     self.wrap(&mut out)?;
                 }
                 jotdown::Event::Hardbreak => {
