@@ -1,77 +1,26 @@
 { % vim: set ft=djot : % }
 
-`djotfmt` test wrapping at various inline element boundaries.
+`djotfmt` wrapping boundary tests
 
 * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 
-Test wrapping between a span and its attribute: aaaa bbbb cccc dddd eeee
-ffff gggg [highlighted]{ .big .red } word after.
+Aaaa bbbb cccc dddd eeee ffff gggg [span]{ .class1 .class2 .class3
+.class4 } suffix.
 
-Test wrapping inside a span attribute: aaaa bbbb cccc dddd eeee ffff
-gggg hhhh [highlighted]{ .class1 .class2 .class3 .class4 .class5 } word
-after.
+Aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii [span]{ .class1 .class2
+.class3 .class4 } suffix.
 
-Test wrapping between link text and url: aaaa bbbb cccc dddd eeee ffff
-gggg hhhh iiii [link text](http://example.com/very/long/url/path) word
-after.
+Aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii [text](
+http://example.com/very/long/path/resource.html) suffix.
 
-Test wrapping between link text and ref: aaaa bbbb cccc dddd eeee ffff
-gggg hhhh iiii [link text][ref label] word after.
+Aaaa bbbb cccc dddd eeee ffff gggg hhhh iiiiii [text](http://example.com
+) suffix.
 
-Test wrapping between image and url: aaaa bbbb cccc dddd eeee ffff gggg
-hhhh iiii jjjj ![alt text](image.png) word after.
+Aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj ![alt](image.png)
+suffix.
 
-Test wrapping at emphasis boundary: aaaa bbbb cccc dddd eeee ffff gggg
-hhhh iiii jjjj kkkk {_emphasized text_} word after.
+Aaaa bbbb cccc dddd eeee ffff gggg hhhh { % comment text here % }
+suffix.
 
-Test wrapping at strong boundary: aaaa bbbb cccc dddd eeee ffff gggg
-hhhh iiii jjjj kkkk {*strong text*} word after.
-
-Test wrapping at mark boundary: aaaa bbbb cccc dddd eeee ffff gggg hhhh
-iiii jjjj kkkk {=marked text=} word after.
-
-Test wrapping at insert boundary: aaaa bbbb cccc dddd eeee ffff gggg
-hhhh iiii jjjj kkkk {+inserted text+} word after.
-
-Test wrapping at delete boundary: aaaa bbbb cccc dddd eeee ffff gggg
-hhhh iiii jjjj kkkk {-deleted text-} word after.
-
-Test wrapping at subscript boundary: aaaa bbbb cccc dddd eeee ffff gggg
-hhhh iiii jjjj kkkk H{~two~}O compound after.
-
-Test wrapping at superscript boundary: aaaa bbbb cccc dddd eeee ffff
-gggg hhhh iiii jjjj kkkk E=mc{^two^} formula after.
-
-Test wrapping at verbatim boundary: aaaa bbbb cccc dddd eeee ffff gggg
-hhhh iiii jjjj kkkk `code span content` word after.
-
-Test wrapping at math boundary: aaaa bbbb cccc dddd eeee ffff gggg hhhh
-iiii jjjj kkkk $`e=mc^2` word after.
-
-Test wrapping at raw inline boundary: aaaa bbbb cccc dddd eeee ffff gggg
-hhhh iiii jjjj `<br>`{=html} word after.
-
-Test wrapping at footnote ref boundary: aaaa bbbb cccc dddd eeee ffff
-gggg hhhh iiii jjjj kkkk text[^note1] word after.
-
-Test wrapping at symbol boundary: aaaa bbbb cccc dddd eeee ffff gggg
-hhhh iiii jjjj kkkk reaction:+1: word after.
-
-Test wrapping at smart punctuation: aaaa bbbb cccc dddd eeee ffff gggg
-hhhh iiii jjjj kkkk {"Hello world."} word after.
-
-Test wrapping at em-dash: aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii
-jjjj kkkk llll---mmm nnnn oooo pppp qqqq.
-
-Test wrapping at ellipsis: aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii
-jjjj kkkk llll...mmm nnnn oooo pppp qqqq.
-
-Test wrapping with nested inline elements: aaaa bbbb cccc dddd eeee ffff
-gggg hhhh iiii jjjj [{*strong inside*} link](http://example.com) word
-after.
-
-Test wrapping with standalone comment attribute: aaaa bbbb cccc dddd
-eeee ffff gggg hhhh iiii jjjj { % a comment here % } word after.
-
-Test wrapping at nonbreaking space: aaaa bbbb cccc dddd eeee ffff gggg
-hhhh iiii jjjj kkkk mmm\ nnn word after.
+Aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk
+prefix{_bold_}suffix more.
