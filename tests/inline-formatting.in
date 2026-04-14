@@ -1,0 +1,13 @@
+This has {*bold*} text and {_italic_} text.
+
+This has {~subscript~} and {^superscript^} text.
+
+This has {+inserted+} and {-deleted-} text.
+
+This has {=marked=} text.
+
+This has a [span with attributes]{.myclass #myid}.
+
+This has `verbatim` text inline.
+
+This has multiple {*bold {_italic_}*} nested formatters.

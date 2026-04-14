@@ -1,0 +1,13 @@
+Inline math: $`E = mc^2`$
+
+Display math:
+
+$$`\int_0^1 x^2 dx`$
+
+A raw inline block: `raw content`{=html}
+
+A raw block:
+
+``` =html
+<div>raw html content</div>
+```

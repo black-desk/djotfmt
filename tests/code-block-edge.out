@@ -1,0 +1,12 @@
+```
+```
+
+```
+single line
+```
+
+``` rust
+fn main() {
+    println!("hello");
+}
+```
