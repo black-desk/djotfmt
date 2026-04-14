@@ -5,3 +5,7 @@
 [submodule "third_party/jotdown"]
 	path = third_party/jotdown
 	url = https://github.com/black-desk/jotdown
+[submodule "third_party/djot"]
+	path = third_party/djot
+	url = https://github.com/jgm/djot
+	branch = main
