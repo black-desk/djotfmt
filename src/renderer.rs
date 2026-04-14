@@ -1148,18 +1148,24 @@ impl<'a> Writer<'a> {
                             }
                         }
                     }
-                    self.push_word("}")?;
-                    self.commit_word(true, &mut out)?;
-
                     match self.stack.last() {
                         Some(is_para) => {
                             log::trace!("is_para: {:?}", is_para);
                             if *is_para {
+                                // Don't commit '}' yet for inline
+                                // attributes in a paragraph — let the
+                                // next word carry it so wrapping can
+                                // keep '}' together with what follows.
+                                self.push_word("}")?;
                                 self.prefix.pop();
                                 log::trace!("Prefix: {:?}", self.prefix);
+                            } else {
+                                self.push_word("}")?;
                             }
                         }
                         None => {
+                            self.push_word("}")?;
+                            self.commit_word(true, &mut out)?;
                             self.prefix.pop();
                             log::trace!("Prefix: {:?}", self.prefix);
                             self.need_blankline = true;
