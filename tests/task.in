@@ -1,0 +1,8 @@
+{ % vim: set ft=djot : % }
+
+- [ ] This formatter should align
+
+    - [ ] task
+
+   - [ ] list
+  - [ ] items
