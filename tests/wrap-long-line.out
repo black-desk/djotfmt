@@ -8,3 +8,11 @@ A very very very very very very very very very very very very very very
 very very very very very very very very very very very very very very
 very very very very very very very very very very long [line]{ .with
 .attributes } that should be wrapped at 72 characters.
+
+> > A very very very very very very very very very very long line that
+> > should be wrapped between the closing `%` and [the]{ % curly brace %
+> > }.
+
+> > > A very very very very very very very very long line that should
+> > > not be wrapped between the dot and the closing { % curly brace %
+> > > }.
