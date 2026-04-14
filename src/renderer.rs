@@ -875,7 +875,10 @@ impl<'a> Writer<'a> {
                             self.raw = false;
                             self.push_word("`")?;
                         }
-                        jotdown::Container::Math { display: _ } => self.push_word("`")?,
+                        jotdown::Container::Math { display: _ } => {
+                            self.raw = false;
+                            self.push_word("`")?;
+                        }
                         jotdown::Container::RawInline { format } => {
                             self.push_word("`{=")?;
                             self.push_word(format)?;
