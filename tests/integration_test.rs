@@ -1,4 +1,5 @@
 use djotfmt::WriterConfig;
+use libtest_mimic::{Arguments, Failed, Trial};
 use pretty_assertions::assert_eq;
 
 fn discover_tests(base: &str, extensions: &[&str]) -> Vec<Vec<std::path::PathBuf>> {
@@ -21,67 +22,6 @@ fn discover_tests(base: &str, extensions: &[&str]) -> Vec<Vec<std::path::PathBuf
         .collect()
 }
 
-#[test]
-fn test_all() {
-    let tests = discover_tests("./tests/", &["in", "out"]);
-    assert!(!tests.is_empty(), "no test cases found");
-
-    for paths in &tests {
-        let input_path = paths.iter().find(|p| p.extension().unwrap() == "in").unwrap();
-        let expected_path = paths.iter().find(|p| p.extension().unwrap() == "out").unwrap();
-
-        let input = std::fs::read_to_string(input_path).unwrap();
-        let expected = std::fs::read_to_string(expected_path).unwrap();
-
-        let max_cols = parse_max_cols(&input);
-        let config = WriterConfig { max_cols };
-
-        let mut output = String::new();
-        djotfmt::Renderer::new(&input)
-            .push_offset(
-                jotdown::Parser::new(&input).into_offset_iter(),
-                &mut output,
-                &config,
-            )
-            .unwrap();
-
-        assert_eq!(
-            output, expected,
-            "test case {:?} failed",
-            input_path.file_stem().unwrap()
-        );
-    }
-}
-
-#[test]
-fn test_idempotent() {
-    let tests = discover_tests("./tests/", &["out"]);
-    assert!(!tests.is_empty(), "no test cases found");
-
-    for paths in &tests {
-        let path = &paths[0];
-        let input = std::fs::read_to_string(path).unwrap();
-
-        let max_cols = parse_max_cols(&input);
-        let config = WriterConfig { max_cols };
-
-        let mut output = String::new();
-        djotfmt::Renderer::new(&input)
-            .push_offset(
-                jotdown::Parser::new(&input).into_offset_iter(),
-                &mut output,
-                &config,
-            )
-            .unwrap();
-
-        assert_eq!(
-            output, input,
-            "idempotent test failed for {:?}",
-            path.file_stem().unwrap()
-        );
-    }
-}
-
 fn parse_max_cols(content: &str) -> usize {
     let mut max_cols = 72;
     for line in content.lines() {
@@ -98,4 +38,90 @@ fn parse_max_cols(content: &str) -> usize {
         }
     }
     max_cols
+}
+
+fn run_format_test(
+    input_path: std::path::PathBuf,
+    expected_path: std::path::PathBuf,
+) -> Result<(), Failed> {
+    let input = std::fs::read_to_string(&input_path).map_err(|e| e.to_string())?;
+    let expected = std::fs::read_to_string(&expected_path).map_err(|e| e.to_string())?;
+
+    let max_cols = parse_max_cols(&input);
+    let config = WriterConfig { max_cols };
+
+    let mut output = String::new();
+    djotfmt::Renderer::new(&input)
+        .push_offset(
+            jotdown::Parser::new(&input).into_offset_iter(),
+            &mut output,
+            &config,
+        )
+        .unwrap();
+
+    assert_eq!(output, expected, "test case {:?}", input_path.file_stem().unwrap());
+    Ok(())
+}
+
+fn run_idempotent_test(path: std::path::PathBuf) -> Result<(), Failed> {
+    let input = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+
+    let max_cols = parse_max_cols(&input);
+    let config = WriterConfig { max_cols };
+
+    let mut output = String::new();
+    djotfmt::Renderer::new(&input)
+        .push_offset(
+            jotdown::Parser::new(&input).into_offset_iter(),
+            &mut output,
+            &config,
+        )
+        .unwrap();
+
+    assert_eq!(output, input, "idempotent test failed for {:?}", path.file_stem().unwrap());
+    Ok(())
+}
+
+fn main() {
+    let args = Arguments::from_args();
+    let mut trials = Vec::new();
+
+    let tests = discover_tests("./tests/", &["in", "out"]);
+    assert!(!tests.is_empty(), "no test cases found");
+
+    for paths in &tests {
+        let input_path = paths
+            .iter()
+            .find(|p| p.extension().unwrap() == "in")
+            .unwrap()
+            .clone();
+        let expected_path = paths
+            .iter()
+            .find(|p| p.extension().unwrap() == "out")
+            .unwrap()
+            .clone();
+        let name = input_path
+            .file_stem()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        trials.push(Trial::test(name, move || {
+            run_format_test(input_path, expected_path)
+        }));
+    }
+
+    let idem_tests = discover_tests("./tests/", &["out"]);
+    assert!(!idem_tests.is_empty(), "no idempotent test cases found");
+
+    for paths in &idem_tests {
+        let path = paths[0].clone();
+        let stem = path.file_stem().unwrap().to_str().unwrap().to_string();
+        let name = format!("idempotent::{}", stem);
+
+        trials.push(Trial::test(name, move || run_idempotent_test(path)));
+    }
+
+    libtest_mimic::run(&args, trials).exit();
 }
