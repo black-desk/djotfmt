@@ -1,0 +1,10 @@
+This paragraph has a footnote reference[^1] and another one[^long-note].
+
+[^1]:
+  This is the first footnote.
+
+[^long-note]:
+  This is a longer footnote with multiple words that should be wrapped
+  properly when it exceeds the maximum column width limit.
+
+And here is some text after the footnotes.

@@ -1,0 +1,15 @@
+::: myclass
+
+Some content inside a div block.
+
+:::
+
+Some text outside the div.
+
+::: warning
+
+This is a warning div.
+
+Multiple paragraphs inside.
+
+:::
