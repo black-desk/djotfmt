@@ -620,6 +620,7 @@ impl<'a> Writer<'a> {
                         }
                         jotdown::Container::DescriptionTerm => {
                             self.blankline(&mut out)?;
+                            self.prefix.push("  ".to_string());
                             self.push_raw(": ")?;
                         }
                         jotdown::Container::LinkDefinition { label } => {
@@ -798,7 +799,14 @@ impl<'a> Writer<'a> {
                                 self.space_after_pending_word = false;
                             }
                         }
-                        jotdown::Container::DescriptionTerm => self.wrap(&mut out)?,
+                        jotdown::Container::DescriptionTerm => {
+                            if !self.pending_word.is_empty() {
+                                self.commit_word(false, &mut out)?;
+                            }
+                            self.wrap(&mut out)?;
+                            self.prefix.pop();
+                            self.need_blankline = true;
+                        }
                         jotdown::Container::LinkDefinition { label } => {
                             self.commit_word(false, &mut out)?;
                             self.wrap(&mut out)?;
@@ -837,7 +845,10 @@ impl<'a> Writer<'a> {
                                     jotdown::SpanLinkType::Reference => {
                                         self.push_word("[")?;
                                         self.commit_word(false, &mut out)?;
-                                        self.push_word(&cow)?;
+                                        let src = &self.source[range.clone()];
+                                        // src is like "][ref]", extract "ref"
+                                        let label = &src[2..src.len() - 1];
+                                        self.push_word(label)?;
                                         self.commit_word(false, &mut out)?;
                                         self.push_word("]")?;
                                     }
@@ -957,7 +968,7 @@ impl<'a> Writer<'a> {
                             }
                         }
                         self.push_word("}")?;
-                        self.commit_word(true, &mut out)?;
+                        self.commit_word(false, &mut out)?;
                     }
                     self.attrs = jotdown::Attributes::new();
                 }
@@ -989,6 +1000,8 @@ impl<'a> Writer<'a> {
 
                             if !self.pending_word.is_empty() {
                                 self.commit_word(true, &mut out)?;
+                            } else {
+                                self.space_after_pending_word = true;
                             }
 
                             space = true;
