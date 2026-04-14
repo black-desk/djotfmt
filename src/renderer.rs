@@ -541,6 +541,8 @@ impl<'a> Writer<'a> {
                             }
                         }
                         jotdown::Container::TaskListItem { checked } => {
+                            self.blankline(&mut out)?;
+                            self.prefix()?;
                             self.push_raw("- [")?;
                             if checked {
                                 self.push_raw("x")?;
