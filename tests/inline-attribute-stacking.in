@@ -1,0 +1,10 @@
+An attribute on _emphasized text_{#foo
+.bar .baz key="my value"}
+
+avant{lang=fr}{.blue}
+
+Text with [span]{.a .b}{#c key=val}
+
+_emphasis_{.red #blue key="value"}
+
+`verbatim`{.code}
