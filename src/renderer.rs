@@ -627,6 +627,8 @@ impl<'a> Writer<'a> {
                             self.push_raw("[")?;
                             self.push_raw(label)?;
                             self.push_raw("]: ")?;
+                            self.prefix.push(" ".to_string());
+                            log::trace!("Prefix: {:?}", self.prefix);
                         }
                         jotdown::Container::RawBlock { format } => {
                             self.blankline(&mut out)?;
@@ -811,6 +813,7 @@ impl<'a> Writer<'a> {
                             self.commit_word(false, &mut out)?;
                             self.wrap(&mut out)?;
                             self.prefix.pop();
+                            self.need_blankline = true;
                             log::trace!("Prefix: {:?}", self.prefix);
                         }
                         jotdown::Container::RawBlock { format } => {
@@ -848,8 +851,10 @@ impl<'a> Writer<'a> {
                                         let src = &self.source[range.clone()];
                                         // src is like "][ref]", extract "ref"
                                         let label = &src[2..src.len() - 1];
-                                        self.push_word(label)?;
-                                        self.commit_word(false, &mut out)?;
+                                        if !label.is_empty() {
+                                            self.push_word(label)?;
+                                            self.commit_word(false, &mut out)?;
+                                        }
                                         self.push_word("]")?;
                                     }
                                     jotdown::SpanLinkType::Unresolved => {
