@@ -1,0 +1,20 @@
+Here'}s the reference.[^foo]
+
+[^foo]:
+  This is a note
+  with two paragraphs.
+
+  Second paragraph must
+  be indented, at least in the first line.
+
+Another reference.[^bar]
+
+[^bar]:
+  Short note.
+
+[^long]:
+  This is a very long footnote that contains enough text to test whether
+  the formatter properly wraps long lines inside footnote content when
+  the text exceeds the maximum column width.
+
+Text after all footnotes.

@@ -1,0 +1,15 @@
+_emphasized text_
+
+*strong emphasis*
+
+__emphasis inside_ emphasis_
+
+_This is *strong within* regular emphasis_
+
+Not emphasized because of spaces: _ not emphasized _
+
+Not strong because of spaces: * not strong *
+
+Curly braces force emphasis: {_ this is emphasized, despite the spaces! _}
+
+Mixed nesting: *bold with _italic_ inside*

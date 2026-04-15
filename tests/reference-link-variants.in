@@ -1,0 +1,15 @@
+Here is a [My link text][] reference link.
+
+[My link text]: /url
+
+Here is a [link with multi-line URL](http://example.com?product_number=234234234234
+234234234234)
+
+[google]: https://google.com
+
+[product page]: http://example.com?item=983459873087120394870128370
+  0981234098123048172304
+
+A link with [stacked attributes]{lang=fr}{.blue}
+
+Another link with [stacked]{.a .b}{#c}

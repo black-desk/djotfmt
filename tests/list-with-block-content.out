@@ -1,0 +1,20 @@
+- A list item
+  with a paragraph.
+
+  > A block quote
+  > inside a list item.
+
+  ``` code
+  A code block inside a list item.
+  ```
+
+- Another list item
+  with only text.
+
+1. An ordered item
+
+   > A block quote
+   > in an ordered list.
+
+   A second paragraph
+   in the list item.
