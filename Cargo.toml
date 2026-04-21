@@ -12,7 +12,7 @@ license = "GPL-3.0-or-later"
 jotdown = { path = 'third_party/jotdown' }
 
 [dependencies]
-clap = { version = "4.6.0", features = ["derive"] }
+clap = { version = "4.6.1", features = ["derive"] }
 colog = "1.4.0"
 env_logger = "0.11.10"
 jotdown = "0.9.1"
