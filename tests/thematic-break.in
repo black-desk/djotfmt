@@ -23,3 +23,9 @@ This is a thematic break in a list in a block quote:
 This is a thematic break will overflow after formatting:
 
 > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > ---
+
+This is a thematic break after list:
+
+- 
+
+---
