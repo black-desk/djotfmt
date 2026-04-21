@@ -701,6 +701,10 @@ impl<'a> Writer<'a> {
                             self.list_kind.pop();
                         }
                         jotdown::Container::ListItem => {
+                            if !self.pending_line.is_empty() {
+                                self.wrap(&mut out)?;
+                                self.need_blankline = true;
+                            }
                             self.prefix.pop();
                             log::trace!("Prefix: {:?}", self.prefix);
                         }
