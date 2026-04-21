@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: black-desk/workflows/generic@master
+        env:
+          CLEAN_IGNORE: '*.in'
 
   rust:
     permissions:
