@@ -84,6 +84,11 @@ struct Writer<'a> {
     max_cols: usize,
     no_wrap: bool,
     table_data: Option<TableData>,
+    /// True after writing a list item marker, suppresses wrap until the first
+    /// content word is placed on the line.  Wrapping right after the marker is
+    /// pointless: the continuation prefix (e.g. "  ") has the same width as
+    /// the marker ("- "), so the next line offers no extra room.
+    list_item_start: bool,
 }
 
 impl<'a> Writer<'a> {
@@ -103,6 +108,7 @@ impl<'a> Writer<'a> {
             max_cols: config.max_cols,
             no_wrap: false,
             table_data: None,
+            list_item_start: false,
         }
     }
 
@@ -125,7 +131,11 @@ impl<'a> Writer<'a> {
         length += self.pending_word.width();
         let length = length;
 
-        if !self.no_wrap && length > self.max_cols && !self.pending_line.is_empty() {
+        if !self.no_wrap
+            && !self.list_item_start
+            && length > self.max_cols
+            && !self.pending_line.is_empty()
+        {
             self.wrap(out)?;
         } else if self.space_after_pending_word {
             self.pending_line.write_str(" ")?;
@@ -137,6 +147,7 @@ impl<'a> Writer<'a> {
         log::trace!("Pending line: {:?}", self.pending_line);
         self.pending_word.clear();
         self.space_after_pending_word = space_after;
+        self.list_item_start = false;
         Ok(())
     }
 
@@ -539,6 +550,7 @@ impl<'a> Writer<'a> {
                                     "task list items use TaskListItem container, not ListItem"
                                 ),
                             }
+                            self.list_item_start = true;
                         }
                         jotdown::Container::TaskListItem { checked } => {
                             self.blankline(&mut out)?;
@@ -551,6 +563,7 @@ impl<'a> Writer<'a> {
                             }
                             self.push_raw("] ")?;
                             self.prefix.push("      ".to_string());
+                            self.list_item_start = true;
                         }
                         jotdown::Container::DescriptionList => (),
                         jotdown::Container::DescriptionDetails => {
