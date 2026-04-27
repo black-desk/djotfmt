@@ -678,8 +678,7 @@ impl<'a> Writer<'a> {
                         },
                         jotdown::Container::Image(cow, span_link_type) => self.push_word("![")?,
                         jotdown::Container::Verbatim => {
-                            self.push_word("`")?;
-                            self.raw = true;
+                            self.push_word(&self.source[range.clone()])?;
                         }
                         jotdown::Container::Math { display } => match display {
                             true => {
@@ -894,8 +893,13 @@ impl<'a> Writer<'a> {
                             self.push_word(")")?;
                         }
                         jotdown::Container::Verbatim => {
-                            self.raw = false;
-                            self.push_word("`")?;
+                            for c in self.source[range.clone()].chars() {
+                                if c != '`' {
+                                    break;
+                                }
+
+                                self.push_word(c.to_string())?;
+                            }
                         }
                         jotdown::Container::Math { display: _ } => {
                             self.raw = false;
