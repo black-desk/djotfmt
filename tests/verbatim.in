@@ -1,0 +1,3 @@
+{% vim: set ft=djot : %}
+
+{-``.../bin/ld: apps/sel4test-driver/musllibc/build-temp/stage/lib/libc.a(__stdio_exit.o): copy relocation against non-copyable protected symbol `__stdin_used'``-}
