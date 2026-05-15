@@ -17,6 +17,9 @@
 ^ A very long long long long long long long long {*long long long long
   long*} table caption
 
+A very long long long long long long long long {*long long long long
+long*} line after table
+
 > | This      | formatter |
 > | should    |    handle |
 > |:----------|----------:|
