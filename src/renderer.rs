@@ -135,6 +135,7 @@ impl<'a> Writer<'a> {
             && !self.list_item_start
             && length > self.max_cols
             && !self.pending_line.is_empty()
+            && self.table_data.is_none()
         {
             self.wrap(out)?;
         } else if self.space_after_pending_word {
@@ -737,6 +738,7 @@ impl<'a> Writer<'a> {
                                 let td = self.table_data.take().unwrap();
                                 self.render_table(td, &mut out)?;
                             }
+                            self.no_wrap = false;
                             self.need_blankline = true;
                         }
                         jotdown::Container::TableRow { head: _ } => {
