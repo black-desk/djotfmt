@@ -9,3 +9,7 @@
 	path = third_party/djot
 	url = https://github.com/jgm/djot
 	branch = main
+[submodule "third_party/djot.js"]
+	path = third_party/djot.js
+	url = https://github.com/jgm/djot.js
+	branch = main
