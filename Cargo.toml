@@ -17,6 +17,8 @@ colog = "1.4.0"
 env_logger = "0.11.10"
 jotdown = "0.9.1"
 log = "0.4.29"
+regex = "1"
+lazy_static = "1"
 roman = "0.1.6"
 unicode-width = "0.2.2"
 
@@ -24,7 +26,12 @@ unicode-width = "0.2.2"
 glob = "0.3"
 libtest-mimic = "0.8"
 pretty_assertions = "1.4.1"
+regex = "1"
 
 [[test]]
 name = "integration_test"
+harness = false
+
+[[test]]
+name = "parser_events_test"
 harness = false
