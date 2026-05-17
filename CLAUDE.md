@@ -27,12 +27,19 @@ cargo run -r -- -vvv file.dj   # Max verbosity (trace-level logging)
 src/
   main.rs        — CLI entry point (arg parsing, file I/O, inplace editing)
   cli.rs         — Clap-based CLI argument definitions
-  lib.rs         — Library re-exports (Renderer, WriterConfig)
+  lib.rs         — Library re-exports (Renderer, WriterConfig, parser)
   renderer.rs    — Core formatting engine (~1200 lines, the heart of the project)
+  parser/        — Djot parser ported from djot.js (produces event stream)
+    mod.rs       — Public API: parse_events(), Event struct
+    block.rs     — Block-level parsing (~1020 lines)
+    inline.rs    — Inline parsing (~935 lines)
+    attributes.rs — Attribute parsing (~327 lines)
+    find.rs      — Regex helper utilities (find_pos / find)
 
 tests/
   integration_test.rs  — Custom test harness (libtest-mimic)
   *.in / *.out         — Paired input/expected-output test cases (~44 tests)
+  parser_events_test.rs — Parser event tests (272 cases, compared against djot.js CLI)
 
 third_party/
   jotdown/       — Forked/patched Djot parser (Rust),
@@ -70,12 +77,14 @@ items one-by-one and manages:
 | `Writer` | `renderer.rs` | Internal formatting engine with state machine |
 | `TableData` | `renderer.rs` | Accumulates table content for multi-pass rendering |
 | `Cli` | `cli.rs` | Clap-derived CLI args (verbose, input, inplace, columns) |
+| `parser::Event` | `parser/mod.rs` | Parse event with startpos, endpos, annot (djot.js compatible) |
+| `parser::parse_events()` | `parser/mod.rs` | Parse Djot input into event stream |
 
 ## Testing
 
 No unit tests. All testing is end-to-end via integration tests.
 
-Integration tests use a **paired-file approach**:
+**Formatter tests** use a **paired-file approach**:
 - `tests/<name>.in` — input Djot document
 - `tests/<name>.out` — expected formatted output
 - Each `.out` is also verified for **idempotency** (formatting twice yields the
@@ -83,8 +92,13 @@ Integration tests use a **paired-file approach**:
 - Use `{ % @columns: N % }` in `.in` files to set custom line width (default 72)
 - Custom harness built on `libtest-mimic`; not the standard `#[test]` attribute
 
-To add a test: create `tests/<name>.in` and `tests/<name>.out`, then `cargo test
---release`.
+**Parser tests** (`tests/parser_events_test.rs`):
+- 272 test cases from the djot.js test suite
+- Compares Rust parser output against `djot.js` CLI (`djot --to events`)
+- Requires `djot` (Node.js) to be available in PATH for generating expected output
+
+To add a formatter test: create `tests/<name>.in` and `tests/<name>.out`, then
+`cargo test --release`.
 
 ## Code Style
 
@@ -100,6 +114,7 @@ To add a test: create `tests/<name>.in` and `tests/<name>.out`, then `cargo test
 | Crate | Purpose |
 |-------|---------|
 | `jotdown` | Djot parser (patched to local fork in `third_party/jotdown`) |
+| `regex` | Regex for parser module (byte-level matching with Unicode disabled) |
 | `clap` | CLI argument parsing (derive API) |
 | `unicode-width` | Unicode-aware character width for line wrapping |
 | `roman` | Roman numeral conversion for ordered lists |
