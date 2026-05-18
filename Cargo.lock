@@ -140,7 +140,6 @@ dependencies = [
  "colog",
  "env_logger",
  "glob",
- "jotdown",
  "lazy_static",
  "libtest-mimic",
  "log",
@@ -220,10 +219,6 @@ dependencies = [
  "quote",
  "syn",
 ]
-
-[[package]]
-name = "jotdown"
-version = "0.9.1"
 
 [[package]]
 name = "lazy_static"

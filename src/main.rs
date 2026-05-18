@@ -22,56 +22,30 @@ fn main() -> std::io::Result<()> {
     for file in matches.input {
         log::trace!("Processing file: {}", file.display());
 
-        // Wrapper around `std::io::Write` that implements `std::fmt::Write`.
-        struct Writer<W: std::io::Write> {
-            inner: W,
-        }
-        impl<W: std::io::Write> Writer<W> {
-            fn new(inner: W) -> Self {
-                Writer { inner }
-            }
-        }
-        impl<W: std::io::Write> std::fmt::Write for Writer<W> {
-            fn write_str(&mut self, s: &str) -> std::fmt::Result {
-                self.inner
-                    .write_all(s.as_bytes())
-                    .map_err(|_| std::fmt::Error)
-            }
-        }
-
-        let output: &mut dyn std::fmt::Write = match matches.inplace {
+        let output: &mut dyn std::io::Write = match matches.inplace {
             false => {
                 log::trace!("Writing to stdout");
-
-                &mut Writer::new(std::io::stdout())
+                &mut std::io::stdout()
             }
             true => {
                 let swap = file.with_extension("djotfmt.swp");
 
                 log::trace!("Writing to swap file {}", swap.display());
 
-                &mut Writer::new(
-                    std::fs::File::create_new(swap).expect("Swapping file already exists"),
-                )
+                &mut std::fs::File::create_new(swap).expect("Swapping file already exists")
             }
         };
 
         log::trace!("Start render file");
 
         let input = std::fs::read_to_string(file.clone())?;
-        let input = input.as_str();
 
-        let config = djotfmt::WriterConfig {
+        let config = djotfmt::fmt::FmtConfig {
             max_cols: matches.columns,
         };
 
-        djotfmt::Renderer::new(input)
-            .push_offset(
-                jotdown::Parser::new(input).into_offset_iter(),
-                output,
-                &config,
-            )
-            .unwrap();
+        let result = djotfmt::fmt::format(&input, &config);
+        output.write_all(result.as_bytes())?;
 
         log::trace!("File rendered");
 
