@@ -33,5 +33,9 @@ name = "integration_test"
 harness = false
 
 [[test]]
+name = "fmt_test"
+harness = false
+
+[[test]]
 name = "parser_events_test"
 harness = false

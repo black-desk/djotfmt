@@ -1,4 +1,7 @@
-use djotfmt::WriterConfig;
+// SPDX-FileCopyrightText: 2026 Chen Linxuan <me@black-desk.cn>
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use libtest_mimic::{Arguments, Failed, Trial};
 use pretty_assertions::assert_eq;
 
@@ -48,16 +51,9 @@ fn run_format_test(
     let expected = std::fs::read_to_string(&expected_path).map_err(|e| e.to_string())?;
 
     let max_cols = parse_max_cols(&input);
-    let config = WriterConfig { max_cols };
+    let config = djotfmt::fmt::FmtConfig { max_cols };
 
-    let mut output = String::new();
-    djotfmt::Renderer::new(&input)
-        .push_offset(
-            jotdown::Parser::new(&input).into_offset_iter(),
-            &mut output,
-            &config,
-        )
-        .unwrap();
+    let output = djotfmt::fmt::format(&input, &config);
 
     assert_eq!(output, expected, "test case {:?}", input_path.file_stem().unwrap());
     Ok(())
@@ -67,18 +63,15 @@ fn run_idempotent_test(path: std::path::PathBuf) -> Result<(), Failed> {
     let input = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
 
     let max_cols = parse_max_cols(&input);
-    let config = WriterConfig { max_cols };
+    let config = djotfmt::fmt::FmtConfig { max_cols };
 
-    let mut output = String::new();
-    djotfmt::Renderer::new(&input)
-        .push_offset(
-            jotdown::Parser::new(&input).into_offset_iter(),
-            &mut output,
-            &config,
-        )
-        .unwrap();
+    let output = djotfmt::fmt::format(&input, &config);
 
-    assert_eq!(output, input, "idempotent test failed for {:?}", path.file_stem().unwrap());
+    assert_eq!(
+        output, input,
+        "idempotent test failed for {:?}",
+        path.file_stem().unwrap()
+    );
     Ok(())
 }
 
@@ -107,29 +100,9 @@ fn main() {
             .unwrap()
             .to_string();
 
-        // Skip tests whose .out files have been updated for the new renderer.
-        // The old renderer (jotdown) adds [span] wrappers and merges inline
-        // attributes, but the new renderer does not — both behaviors are valid
-        // djot, so the .out files reflect the new renderer's output.
-        let skip = [
-            "remove-extra-spaces",      // no [span] for bare text + attributes
-            "wrap-long-line",           // no [span] for bare text + attributes
-            "inline-attribute-stacking", // no attr merging; no [span] for [text]{.a}{.b}
-            "reference-link-variants",  // no attr merging
-            "block-attributes",         // separate block attrs (not merged)
-            "handle-nest-attrs",        // different wrapping of inline attributes
-            "div-block",                // trailing blank line from source preserved
-            "wrap-inline-boundary",     // different wrapping positions
-            "table",                    // different table alignment (forward-looking)
-            "table-no-header",          // all separators rendered
-            "README",                   // combined differences
-        ];
+        // All tests pass — no skips needed
 
-        if skip.contains(&name.as_str()) {
-            continue;
-        }
-
-        trials.push(Trial::test(name, move || {
+        trials.push(Trial::test(format!("fmt::{}", name), move || {
             run_format_test(input_path, expected_path)
         }));
     }
@@ -137,29 +110,11 @@ fn main() {
     let idem_tests = discover_tests("./tests/", &["out"]);
     assert!(!idem_tests.is_empty(), "no idempotent test cases found");
 
-    let idem_skip = [
-        "remove-extra-spaces",
-        "wrap-long-line",
-        "inline-attribute-stacking",
-        "reference-link-variants",
-        "block-attributes",
-        "handle-nest-attrs",
-        "div-block",
-        "wrap-inline-boundary",
-        "table",
-        "table-no-header",
-        "README",
-    ];
-
     for paths in &idem_tests {
         let path = paths[0].clone();
         let stem = path.file_stem().unwrap().to_str().unwrap().to_string();
 
-        if idem_skip.contains(&stem.as_str()) {
-            continue;
-        }
-
-        let name = format!("idempotent::{}", stem);
+        let name = format!("fmt::idempotent::{}", stem);
 
         trials.push(Trial::test(name, move || run_idempotent_test(path)));
     }
