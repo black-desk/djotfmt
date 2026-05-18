@@ -1,7 +1,8 @@
-{ #water .important .large }
+{ #water }
+{ .important .large }
 Don'}t forget to turn off the water!
 
-{ source="Iliad" }
+{ source=Iliad }
 > Sing, muse, of the wrath of Achilles
 
 { .code-attribute }
@@ -22,5 +23,5 @@ x = 5 * 6
 |---|---|
 | 1 | 2 |
 
-{ #id .class style="color:red" }
+{ #id .class style=color:red }
 A paragraph

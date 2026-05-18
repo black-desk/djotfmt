@@ -10,6 +10,6 @@ http://example.com?product_number=234234234234234234234234)
 [product page]:
  http://example.com?item=9834598730871203948701283700981234098123048172304
 
-A link with [stacked attributes]{ lang="fr" .blue }
+A link with [stacked attributes]{ lang=fr }{ .blue }
 
-Another link with [stacked]{ .a .b #c }
+Another link with [stacked]{ .a .b }{ #c }
