@@ -4,6 +4,3 @@
 
 pub mod parser;
 pub mod fmt;
-mod renderer;
-pub use renderer::Renderer;
-pub use renderer::WriterConfig;

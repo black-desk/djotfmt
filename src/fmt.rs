@@ -820,6 +820,10 @@ impl<'a> FmtWriter<'a> {
                             self.apply_prefix();
                             self.push_raw(":::")?;
                             self.wrap(out)?;
+                            // The closing ::: is a block boundary, not content.
+                            // Reset have_content so that a trailing blankline
+                            // event does not produce an extra blank line.
+                            self.have_content = false;
                             self.need_blankline = true;
                         }
                     }
@@ -945,11 +949,24 @@ impl<'a> FmtWriter<'a> {
                     "destination" => {
                         if is_open {
                             self.pending_link_close = false;
-                            self.push_word("](")?;
+                            if self.pending_word == ")" {
+                                // ) from a previous -destination (image-in-link
+                                // pattern) — combine into )]( and wrap first.
+                                self.pending_word.clear();
+                                if !self.pending_line.is_empty() {
+                                    self.wrap(out)?;
+                                }
+                                self.push_word(")](")?;
+                            } else {
+                                self.push_word("](")?;
+                            }
                             self.commit_word(false, out)?;
                             self.in_destination = true;
                         } else {
                             self.in_destination = false;
+                            if !self.pending_word.is_empty() {
+                                self.commit_word(false, out)?;
+                            }
                             self.push_word(")")?;
                         }
                     }
