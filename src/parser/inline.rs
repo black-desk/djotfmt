@@ -446,10 +446,11 @@ impl<'a> InlineParser<'a> {
                 // image_marker instead of replacing it (which would lose text).
                 let prev = &mut self.matches[opener_match_index - 1];
                 if prev.annot == "str" && prev.endpos >= opener_startpos - 1 {
-                    prev.endpos = opener_startpos.saturating_sub(2);
-                    if prev.endpos < prev.startpos {
+                    if prev.startpos == opener_startpos - 1 {
                         // Was only the '!' — remove entirely
                         self.matches[opener_match_index - 1].annot = "__remove__".to_string();
+                    } else {
+                        prev.endpos = opener_startpos - 2;
                     }
                 }
                 self.add_match(opener_startpos - 1, opener_startpos - 1, "image_marker");
@@ -542,9 +543,11 @@ impl<'a> InlineParser<'a> {
                         // image_marker instead of replacing it (which would lose text).
                         let prev = &mut self.matches[opener_match_index - 1];
                         if prev.annot == "str" && prev.endpos >= opener_startpos - 1 {
-                            prev.endpos = opener_startpos.saturating_sub(2);
-                            if prev.endpos < prev.startpos {
+                            if prev.startpos == opener_startpos - 1 {
+                                // Was only the '!' — remove entirely
                                 self.matches[opener_match_index - 1].annot = "__remove__".to_string();
+                            } else {
+                                prev.endpos = opener_startpos - 2;
                             }
                         }
                         self.add_match(opener_startpos - 1, opener_startpos - 1, "image_marker");

@@ -200,16 +200,6 @@ fn main() {
         .filter_map(|e| e.ok())
         .collect();
 
-    // Cases to skip: our parser fixes djot.js bugs, so these differ from
-    // djot.js CLI output. Text before image markers is correctly emitted
-    // as a str event, but djot.js omits it.
-    let skip_cases: &[(&str, usize)] = &[
-        ("links_and_images.test", 1),
-        ("links_and_images.test", 16),
-        ("links_and_images.test", 18),
-        ("links_and_images.test", 26),
-    ];
-
     for entry in &entries {
         let file_name = entry.file_name().unwrap().to_str().unwrap().to_string();
         let content = std::fs::read_to_string(entry).unwrap();
@@ -217,10 +207,6 @@ fn main() {
 
         for (case_idx, input) in cases.into_iter().enumerate() {
             let name = format!("{}::case_{}", file_name, case_idx);
-            if skip_cases.contains(&(file_name.as_str(), case_idx)) {
-                trials.push(Trial::test(name, || Ok(())));
-                continue;
-            }
             let test_file = file_name.clone();
             trials.push(Trial::test(name, move || {
                 run_parser_event_test(&test_file, case_idx, &input)
@@ -232,12 +218,6 @@ fn main() {
         eprintln!("No test cases found in {}", test_dir.display());
     }
 
-    // Integration test files that hit the image-marker bug fixed in our parser
-    let skip_integration: &[&str] = &[
-        "links-and-images",
-        "wrap-inline-boundary",
-    ];
-
     // Also test integration .in/.out files
     let int_entries: Vec<_> = glob::glob("tests/*.in")
         .unwrap()
@@ -248,30 +228,20 @@ fn main() {
         let stem = in_path.file_stem().unwrap().to_str().unwrap().to_string();
         let in_content = std::fs::read_to_string(in_path).unwrap();
 
-        let skip = skip_integration.contains(&stem.as_str());
-
         let in_stem = stem.clone();
         let in_name = format!("integration::{}::in", stem);
         let in_content_clone = in_content.clone();
-        if skip {
-            trials.push(Trial::test(in_name, || Ok(())));
-        } else {
-            trials.push(Trial::test(in_name, move || {
-                run_parser_event_test(&format!("{}.in", in_stem), 0, &in_content_clone)
-            }));
-        }
+        trials.push(Trial::test(in_name, move || {
+            run_parser_event_test(&format!("{}.in", in_stem), 0, &in_content_clone)
+        }));
 
         let out_path = in_path.with_extension("out");
         if out_path.exists() {
             let out_content = std::fs::read_to_string(&out_path).unwrap();
             let out_name = format!("integration::{}::out", stem);
-            if skip {
-                trials.push(Trial::test(out_name, || Ok(())));
-            } else {
-                trials.push(Trial::test(out_name, move || {
-                    run_parser_event_test(&format!("{}.out", stem), 0, &out_content)
-                }));
-            }
+            trials.push(Trial::test(out_name, move || {
+                run_parser_event_test(&format!("{}.out", stem), 0, &out_content)
+            }));
         }
     }
 
