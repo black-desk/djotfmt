@@ -12,7 +12,7 @@ license = "GPL-3.0-or-later"
 clap = { version = "4.6.1", features = ["derive"] }
 colog = "1.4.0"
 env_logger = "0.11.10"
-log = "0.4.30"
+log = "0.4.31"
 regex = "1"
 lazy_static = "1"
 roman = "0.1.6"
