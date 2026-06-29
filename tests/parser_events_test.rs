@@ -148,6 +148,166 @@ fn check_djot_available() -> bool {
         .unwrap_or(false)
 }
 
+/// Path to the pinned djot.js submodule, relative to the crate root (integration
+/// tests run with the crate root as their working directory).
+const DJOT_JS: &str = "third_party/djot.js";
+
+/// When set (to a non-empty, non-"0"/"false" value) the suite must actually run:
+/// any condition that would otherwise cause a silent skip (missing JS toolchain,
+/// missing submodule, or a failed build) instead fails the test binary. Set this
+/// in CI so a runner-image change — e.g. npm disappearing — surfaces as a red
+/// build instead of the conformance suite quietly vanishing.
+fn require_conformance() -> bool {
+    matches!(
+        std::env::var("DJOTFMT_REQUIRE_CONFORMANCE"),
+        Ok(v) if !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false")
+    )
+}
+
+/// Print an error and exit non-zero, failing the test run.
+fn fatal(msg: &str) -> ! {
+    eprintln!("error: {msg}.");
+    std::process::exit(1)
+}
+
+/// Ensure `third_party/djot.js/lib/cli.js` is built from the pinned submodule
+/// source before the suite runs. `lib/` is a gitignored build artifact
+/// (`tsc && webpack`), so it is absent on a fresh checkout and would otherwise
+/// make the whole suite skip silently. Building it here — its only consumer —
+/// keeps the formatter itself free of any JS toolchain requirement.
+fn ensure_djot_built() {
+    use std::path::Path;
+
+    let base = Path::new(DJOT_JS);
+
+    // Submodule not checked out (e.g. a shallow clone) — nothing to build; the
+    // suite skips via `check_djot_available`.
+    if !base.join("src").is_dir() {
+        if require_conformance() {
+            fatal(
+                "DJOTFMT_REQUIRE_CONFORMANCE is set but the djot.js submodule is \
+                 not checked out",
+            );
+        }
+        return;
+    }
+
+    let lib_cli = base.join("lib/cli.js");
+    if lib_cli.exists() && is_fresh(&lib_cli, &base.join("src")) {
+        return;
+    }
+
+    // No JS toolchain (or explicitly opted out) — leave the gap to
+    // `check_djot_available`, which skips the suite with a clear message.
+    if std::env::var_os("DJOTFMT_SKIP_JS_BUILD").is_some() || !have("node") || !have("npm") {
+        if require_conformance() {
+            let reason = if std::env::var_os("DJOTFMT_SKIP_JS_BUILD").is_some() {
+                "DJOTFMT_SKIP_JS_BUILD is set".to_string()
+            } else {
+                "node/npm is not available on PATH".to_string()
+            };
+            fatal(&format!(
+                "DJOTFMT_REQUIRE_CONFORMANCE is set but the djot.js reference build \
+                 cannot be produced ({reason})"
+            ));
+        }
+        eprintln!(
+            "note: djot.js lib/cli.js is missing or stale and no JS toolchain is \
+             available; parser conformance tests will be skipped. Build manually with \
+             `npm --prefix {DJOT_JS} ci && npm --prefix {DJOT_JS} run build`, or set \
+             DJOTFMT_SKIP_JS_BUILD=1 to silence this."
+        );
+        return;
+    }
+
+    eprintln!("note: building djot.js lib/ from the pinned submodule source...");
+
+    // `npm ci` installs exactly from the lockfile, but on non-macOS hosts it
+    // also rewrites yarn.lock to drop the macOS-only `fsevents` optional
+    // dependency. Snapshot and restore the lockfiles so the submodule working
+    // tree stays clean.
+    if !base.join("node_modules").is_dir() {
+        let snapshots = ["yarn.lock", "package-lock.json"]
+            .map(|name| (name, std::fs::read(base.join(name)).ok()));
+        npm(&["ci"], "install djot.js dependencies (locked)");
+        for (name, snapshot) in &snapshots {
+            if let Some(content) = snapshot {
+                let _ = std::fs::write(base.join(name), content);
+            }
+        }
+    }
+
+    npm(&["run", "build"], "build djot.js lib/ from the pinned source");
+}
+
+/// `true` iff `lib_cli` is at least as new as the newest file under `src_dir`.
+fn is_fresh(lib_cli: &std::path::Path, src_dir: &std::path::Path) -> bool {
+    let Some(lib_mtime) = mtime(lib_cli) else {
+        return false;
+    };
+    let mut fresh = true;
+    walk(src_dir, &mut |path| {
+        if let Some(t) = mtime(path) {
+            if t > lib_mtime {
+                fresh = false;
+            }
+        }
+    });
+    fresh
+}
+
+/// Probe whether a command is runnable by asking it for its version.
+fn have(cmd: &str) -> bool {
+    std::process::Command::new(cmd)
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok()
+}
+
+/// Run an `npm` command inside the djot.js submodule, exiting the test binary
+/// (and thus failing the suite) on error.
+fn npm(args: &[&str], label: &str) {
+    let status = std::process::Command::new("npm")
+        .args(args)
+        .current_dir(DJOT_JS)
+        .status();
+    match status {
+        Ok(status) if status.success() => {}
+        Ok(status) => {
+            eprintln!(
+                "error: failed to {label} (`npm {}` exited with {status}).",
+                args.join(" ")
+            );
+            std::process::exit(1);
+        }
+        Err(err) => {
+            eprintln!("error: failed to {label}: cannot run `npm`: {err}.");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn mtime(path: &std::path::Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).ok()?.modified().ok()
+}
+
+fn walk(dir: &std::path::Path, f: &mut dyn FnMut(&std::path::Path)) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk(&path, f);
+        } else {
+            f(&path);
+        }
+    }
+}
+
 fn run_parser_event_test(
     test_file: &str,
     case_index: usize,
@@ -187,7 +347,19 @@ fn run_parser_event_test(
 fn main() {
     let args = Arguments::from_args();
 
+    // Build the djot.js reference CLI from the pinned submodule so the suite
+    // compares against the right artifacts instead of silently skipping on a
+    // fresh checkout. This is the only consumer of lib/cli.js, so the build
+    // lives here rather than in build.rs (the formatter itself stays JS-free).
+    ensure_djot_built();
+
     if !check_djot_available() {
+        if require_conformance() {
+            fatal(
+                "DJOTFMT_REQUIRE_CONFORMANCE is set but the djot.js CLI is unavailable \
+                 (lib/cli.js missing or node cannot run it)",
+            );
+        }
         eprintln!("SKIP: djot CLI not found. Install with: npm install -g @djot/djot");
         libtest_mimic::run(&args, vec![]).exit();
     }

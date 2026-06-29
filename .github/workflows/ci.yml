@@ -25,6 +25,12 @@ jobs:
       id-token: write
       contents: write
 
+    # Fail hard if the djot.js conformance suite can't actually run (missing JS
+    # toolchain, missing submodule, failed build) instead of silently skipping.
+    # Guards against a future runner-image change that drops node/npm unnoticed.
+    env:
+      DJOTFMT_REQUIRE_CONFORMANCE: '1'
+
     runs-on: ubuntu-latest
     steps:
       - uses: black-desk/workflows/rust@master
