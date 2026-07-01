@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2026 Chen Linxuan <me@black-desk.cn>
+#
+# SPDX-License-Identifier: MIT
+
+name: Continuous Deployment
+
+on:
+  push:
+    tags:
+      - v*-*
+    branches:
+      - master
+
+jobs:
+  # TODO: Uncomment and configure this job for publishing to crates.io
+  # publish:
+  #   permissions:
+  #     contents: write
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: black-desk/workflows/goreleaser@master
+
+  # TODO: Remove this job
+  place-holder:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Hello world!"
