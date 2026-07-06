@@ -34,7 +34,6 @@ const C_CR: u32 = 13;
 const C_SPACE: u32 = 32;
 const C_BANG: u32 = 33;
 const C_DOUBLE_QUOTE: u32 = 34;
-const C_DOLLARS: u32 = 36;
 const C_SINGLE_QUOTE: u32 = 39;
 const C_LEFT_PAREN: u32 = 40;
 const C_RIGHT_PAREN: u32 = 41;
@@ -76,12 +75,11 @@ fn cp(subject: &str, pos: usize) -> u32 {
 
 fn find_special(subject: &str, startpos: usize, endpos: usize) -> Option<usize> {
     let subj = &subject.as_bytes()[startpos..];
-    for mat in RE_SPECIAL.find_iter(subj) {
+    if let Some(mat) = RE_SPECIAL.find_iter(subj).next() {
         let byte_pos = startpos + mat.start();
-        if byte_pos > endpos {
-            break;
+        if byte_pos <= endpos {
+            return Some(byte_pos);
         }
-        return Some(byte_pos);
     }
     None
 }
@@ -740,6 +738,11 @@ impl<'a> InlineParser<'a> {
                             find::find_pos(subject, &PATT_BACKTICKS0, pos, Some(endpos))
                         {
                             let endchar = m_end;
+                            // A $ immediately before backticks starts math unless
+                            // the preceding match is an escape for that dollar.
+                            let dollar_escaped = self.matches.len() >= 2
+                                && self.matches[self.matches.len() - 2].annot == "escape"
+                                && self.matches[self.matches.len() - 2].endpos == pos - 2;
                             if pos >= 2
                                 && find::find_pos(subject, &PATT_DOUBLE_DOLLARS, pos - 2, None).is_some()
                                 && (pos < 3 || find::find_pos(subject, &PATT_BACKSLASH, pos - 3, None).is_none())
@@ -750,6 +753,7 @@ impl<'a> InlineParser<'a> {
                                 self.verbatim_type = "display_math".to_string();
                             } else if pos >= 1
                                 && find::find_pos(subject, &PATT_SINGLE_DOLLAR, pos - 1, None).is_some()
+                                && !dollar_escaped
                             {
                                 self.matches.pop(); // remove $
                                 self.add_match(pos - 1, endchar, "+inline_math");
