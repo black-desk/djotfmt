@@ -85,8 +85,7 @@ fn find_special(subject: &str, startpos: usize, endpos: usize) -> Option<usize> 
 }
 
 fn has_brace(subject: &str, pos: usize) -> bool {
-    (pos > 0 && cp(subject, pos - 1) == C_LEFT_BRACE)
-        || cp(subject, pos + 1) == C_RIGHT_BRACE
+    (pos > 0 && cp(subject, pos - 1) == C_LEFT_BRACE) || cp(subject, pos + 1) == C_RIGHT_BRACE
 }
 
 pub struct InlineParser<'a> {
@@ -201,13 +200,7 @@ impl<'a> InlineParser<'a> {
         self.matches
     }
 
-    fn add_opener(
-        &mut self,
-        name: &str,
-        startpos: usize,
-        endpos: usize,
-        default_annot: &str,
-    ) {
+    fn add_opener(&mut self, name: &str, startpos: usize, endpos: usize, default_annot: &str) {
         let match_index = self.matches.len();
         self.add_match(startpos, endpos, default_annot);
 
@@ -295,9 +288,10 @@ impl<'a> InlineParser<'a> {
         // with pos > 0 instead, which is equivalent (can_close = false at pos 0).
         let cc_find = if pos > 0 {
             find::find_pos(subject, &PATT_NONSPACE, pos - 1, None)
-        } else { None };
-        let mut can_open = co_find.is_some()
-            && opentest(subject, pos);
+        } else {
+            None
+        };
+        let mut can_open = co_find.is_some() && opentest(subject, pos);
         let mut can_close = pos > 0 && cc_find.is_some();
 
         let lastmatch = self.matches.last();
@@ -338,7 +332,8 @@ impl<'a> InlineParser<'a> {
         if can_close {
             // Pre-check link openers for destination check (before mutable borrow)
             let link_opener_startpos: Option<usize> = if self.destination {
-                self.openers.iter()
+                self.openers
+                    .iter()
                     .find(|(k, _)| *k == "[")
                     .and_then(|v| v.1.last())
                     .filter(|o| o.annot.as_deref() == Some("explicit_link"))
@@ -383,7 +378,12 @@ impl<'a> InlineParser<'a> {
 
             if matched {
                 self.clear_openers(opener_startpos, pos);
-                self.add_match_at(opener_match_index, opener_startpos, opener_endpos, &format!("+{}", annotation));
+                self.add_match_at(
+                    opener_match_index,
+                    opener_startpos,
+                    opener_endpos,
+                    &format!("+{}", annotation),
+                );
                 self.add_match(pos, endcloser, &format!("-{}", annotation));
                 return endcloser + 1;
             }
@@ -452,10 +452,20 @@ impl<'a> InlineParser<'a> {
                     }
                 }
                 self.add_match(opener_startpos - 1, opener_startpos - 1, "image_marker");
-                self.add_match_at(opener_match_index, opener_startpos, opener_endpos, "+imagetext");
+                self.add_match_at(
+                    opener_match_index,
+                    opener_startpos,
+                    opener_endpos,
+                    "+imagetext",
+                );
                 self.add_match_at(opener_sub_match_index, sub_sp, sub_sp, "-imagetext");
             } else {
-                self.add_match_at(opener_match_index, opener_startpos, opener_endpos, "+linktext");
+                self.add_match_at(
+                    opener_match_index,
+                    opener_startpos,
+                    opener_endpos,
+                    "+linktext",
+                );
                 self.add_match_at(opener_sub_match_index, sub_sp, sub_sp, "-linktext");
             }
 
@@ -525,8 +535,11 @@ impl<'a> InlineParser<'a> {
                     let opener_endpos = self.openers[oi].1[last].endpos;
                     let opener_match_index = self.openers[oi].1[last].match_index;
                     let opener_sub_match_index = self.openers[oi].1[last].sub_match_index;
-                    let opener_substartpos = self.openers[oi].1[last].substartpos.unwrap_or(opener_startpos);
-                    let opener_subendpos = self.openers[oi].1[last].subendpos.unwrap_or(opener_endpos);
+                    let opener_substartpos = self.openers[oi].1[last]
+                        .substartpos
+                        .unwrap_or(opener_startpos);
+                    let opener_subendpos =
+                        self.openers[oi].1[last].subendpos.unwrap_or(opener_endpos);
 
                     // convert matches inside destination to str
                     self.str_matches(opener_subendpos + 1, pos - 1);
@@ -543,19 +556,45 @@ impl<'a> InlineParser<'a> {
                         if prev.annot == "str" && prev.endpos >= opener_startpos - 1 {
                             if prev.startpos == opener_startpos - 1 {
                                 // Was only the '!' — remove entirely
-                                self.matches[opener_match_index - 1].annot = "__remove__".to_string();
+                                self.matches[opener_match_index - 1].annot =
+                                    "__remove__".to_string();
                             } else {
                                 prev.endpos = opener_startpos - 2;
                             }
                         }
                         self.add_match(opener_startpos - 1, opener_startpos - 1, "image_marker");
-                        self.add_match_at(opener_match_index, opener_startpos, opener_endpos, "+imagetext");
-                        self.add_match_at(opener_sub_match_index, opener_substartpos, opener_substartpos, "-imagetext");
+                        self.add_match_at(
+                            opener_match_index,
+                            opener_startpos,
+                            opener_endpos,
+                            "+imagetext",
+                        );
+                        self.add_match_at(
+                            opener_sub_match_index,
+                            opener_substartpos,
+                            opener_substartpos,
+                            "-imagetext",
+                        );
                     } else {
-                        self.add_match_at(opener_match_index, opener_startpos, opener_endpos, "+linktext");
-                        self.add_match_at(opener_sub_match_index, opener_substartpos, opener_substartpos, "-linktext");
+                        self.add_match_at(
+                            opener_match_index,
+                            opener_startpos,
+                            opener_endpos,
+                            "+linktext",
+                        );
+                        self.add_match_at(
+                            opener_sub_match_index,
+                            opener_substartpos,
+                            opener_substartpos,
+                            "-linktext",
+                        );
                     }
-                    self.add_match_at(opener_sub_match_index + 1, opener_subendpos, opener_subendpos, "+destination");
+                    self.add_match_at(
+                        opener_sub_match_index + 1,
+                        opener_subendpos,
+                        opener_subendpos,
+                        "+destination",
+                    );
                     self.add_match(pos, pos, "-destination");
                     self.destination = false;
                     self.clear_openers(opener_startpos, pos);
@@ -575,9 +614,12 @@ impl<'a> InlineParser<'a> {
 
         if has_open_brace || has_close_brace {
             let newpos = self.between_matched(
-                "-", "delete", "str",
+                "-",
+                "delete",
+                "str",
                 |s: &str, p: usize| has_brace(s, p),
-                pos, endpos,
+                pos,
+                endpos,
             );
             return Some(newpos);
         }
@@ -706,7 +748,8 @@ impl<'a> InlineParser<'a> {
                         let endchar = m_end;
                         if m_end - pos + 1 == self.verbatim {
                             // check for raw attribute
-                            let has_raw = find::find(subject, &PATT_RAW_ATTRIBUTE, endchar + 1, Some(endpos));
+                            let has_raw =
+                                find::find(subject, &PATT_RAW_ATTRIBUTE, endchar + 1, Some(endpos));
                             if has_raw.is_some() && self.verbatim_type == "verbatim" {
                                 let (m2_start, m2_end, _) = has_raw.unwrap();
                                 self.add_match(pos, endchar, &format!("-{}", self.verbatim_type));
@@ -744,15 +787,19 @@ impl<'a> InlineParser<'a> {
                                 && self.matches[self.matches.len() - 2].annot == "escape"
                                 && self.matches[self.matches.len() - 2].endpos == pos - 2;
                             if pos >= 2
-                                && find::find_pos(subject, &PATT_DOUBLE_DOLLARS, pos - 2, None).is_some()
-                                && (pos < 3 || find::find_pos(subject, &PATT_BACKSLASH, pos - 3, None).is_none())
+                                && find::find_pos(subject, &PATT_DOUBLE_DOLLARS, pos - 2, None)
+                                    .is_some()
+                                && (pos < 3
+                                    || find::find_pos(subject, &PATT_BACKSLASH, pos - 3, None)
+                                        .is_none())
                             {
                                 self.matches.pop(); // remove second $
                                 self.matches.pop(); // remove first $
                                 self.add_match(pos - 2, endchar, "+display_math");
                                 self.verbatim_type = "display_math".to_string();
                             } else if pos >= 1
-                                && find::find_pos(subject, &PATT_SINGLE_DOLLAR, pos - 1, None).is_some()
+                                && find::find_pos(subject, &PATT_SINGLE_DOLLAR, pos - 1, None)
+                                    .is_some()
                                 && !dollar_escaped
                             {
                                 self.matches.pop(); // remove $
@@ -777,7 +824,9 @@ impl<'a> InlineParser<'a> {
                                 if self.matches[last_idx].annot == "str" {
                                     let sp = self.matches[last_idx].startpos;
                                     let mut ep = self.matches[last_idx].endpos;
-                                    while ep >= sp && (cp(subject, ep) == C_SPACE || cp(subject, ep) == C_TAB) {
+                                    while ep >= sp
+                                        && (cp(subject, ep) == C_SPACE || cp(subject, ep) == C_TAB)
+                                    {
                                         ep -= 1;
                                     }
                                     if ep < sp {
@@ -851,46 +900,75 @@ impl<'a> InlineParser<'a> {
                             None
                         }
                     }
-                    C_TILDE => {
-                        Some(self.between_matched("~", "subscript", "str",
-                            |_s, _p| true, pos, endpos))
-                    }
-                    C_HAT => {
-                        Some(self.between_matched("^", "superscript", "str",
-                            |_s, _p| true, pos, endpos))
-                    }
+                    C_TILDE => Some(self.between_matched(
+                        "~",
+                        "subscript",
+                        "str",
+                        |_s, _p| true,
+                        pos,
+                        endpos,
+                    )),
+                    C_HAT => Some(self.between_matched(
+                        "^",
+                        "superscript",
+                        "str",
+                        |_s, _p| true,
+                        pos,
+                        endpos,
+                    )),
                     C_UNDERSCORE => {
-                        Some(self.between_matched("_", "emph", "str",
-                            |_s, _p| true, pos, endpos))
+                        Some(self.between_matched("_", "emph", "str", |_s, _p| true, pos, endpos))
                     }
                     C_ASTERISK => {
-                        Some(self.between_matched("*", "strong", "str",
-                            |_s, _p| true, pos, endpos))
+                        Some(self.between_matched("*", "strong", "str", |_s, _p| true, pos, endpos))
                     }
-                    C_PLUS => {
-                        Some(self.between_matched("+", "insert", "str",
-                            |s, p| has_brace(s, p), pos, endpos))
-                    }
-                    C_EQUALS => {
-                        Some(self.between_matched("=", "mark", "str",
-                            |s, p| has_brace(s, p), pos, endpos))
-                    }
-                    C_SINGLE_QUOTE => {
-                        Some(self.between_matched("'", "single_quoted", "right_single_quote",
-                            |s, p| {
-                                if p == 0 { true } else {
-                                    let prev = cp(s, p - 1);
-                                    prev == C_SPACE || prev == C_TAB || prev == C_CR
-                                        || prev == C_LF || prev == C_DOUBLE_QUOTE
-                                        || prev == C_SINGLE_QUOTE || prev == C_HYPHEN
-                                        || prev == C_LEFT_PAREN || prev == C_LEFT_BRACKET
-                                }
-                            }, pos, endpos))
-                    }
-                    C_DOUBLE_QUOTE => {
-                        Some(self.between_matched("\"", "double_quoted", "left_double_quote",
-                            |_s, _p| true, pos, endpos))
-                    }
+                    C_PLUS => Some(self.between_matched(
+                        "+",
+                        "insert",
+                        "str",
+                        |s, p| has_brace(s, p),
+                        pos,
+                        endpos,
+                    )),
+                    C_EQUALS => Some(self.between_matched(
+                        "=",
+                        "mark",
+                        "str",
+                        |s, p| has_brace(s, p),
+                        pos,
+                        endpos,
+                    )),
+                    C_SINGLE_QUOTE => Some(self.between_matched(
+                        "'",
+                        "single_quoted",
+                        "right_single_quote",
+                        |s, p| {
+                            if p == 0 {
+                                true
+                            } else {
+                                let prev = cp(s, p - 1);
+                                prev == C_SPACE
+                                    || prev == C_TAB
+                                    || prev == C_CR
+                                    || prev == C_LF
+                                    || prev == C_DOUBLE_QUOTE
+                                    || prev == C_SINGLE_QUOTE
+                                    || prev == C_HYPHEN
+                                    || prev == C_LEFT_PAREN
+                                    || prev == C_LEFT_BRACKET
+                            }
+                        },
+                        pos,
+                        endpos,
+                    )),
+                    C_DOUBLE_QUOTE => Some(self.between_matched(
+                        "\"",
+                        "double_quoted",
+                        "left_double_quote",
+                        |_s, _p| true,
+                        pos,
+                        endpos,
+                    )),
                     C_LEFT_BRACE => {
                         if find::find_pos(subject, &PATT_DELIM, pos + 1, Some(endpos)).is_some() {
                             self.add_match(pos, pos, "open_marker");
@@ -917,7 +995,9 @@ impl<'a> InlineParser<'a> {
                         }
                     }
                     C_PERIOD => {
-                        if find::find_pos(subject, &PATT_TWO_PERIODS, pos + 1, Some(endpos)).is_some() {
+                        if find::find_pos(subject, &PATT_TWO_PERIODS, pos + 1, Some(endpos))
+                            .is_some()
+                        {
                             self.add_match(pos, pos + 2, "ellipses");
                             Some(pos + 3)
                         } else {
@@ -935,9 +1015,7 @@ impl<'a> InlineParser<'a> {
                             Some(pos + 1)
                         }
                     }
-                    C_RIGHT_BRACKET => {
-                        self.handle_right_bracket(pos, endpos)
-                    }
+                    C_RIGHT_BRACKET => self.handle_right_bracket(pos, endpos),
                     C_LEFT_PAREN => {
                         if !self.destination {
                             None
@@ -946,12 +1024,8 @@ impl<'a> InlineParser<'a> {
                             Some(pos + 1)
                         }
                     }
-                    C_RIGHT_PAREN => {
-                        self.handle_right_paren(pos, endpos)
-                    }
-                    C_HYPHEN => {
-                        self.handle_hyphen(pos, endpos)
-                    }
+                    C_RIGHT_PAREN => self.handle_right_paren(pos, endpos),
+                    C_HYPHEN => self.handle_hyphen(pos, endpos),
                     _ => None,
                 };
 

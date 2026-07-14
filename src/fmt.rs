@@ -229,7 +229,11 @@ impl<'a> FmtWriter<'a> {
         Ok(())
     }
 
-    fn commit_word<W: std::fmt::Write>(&mut self, space_after: bool, out: &mut W) -> std::fmt::Result {
+    fn commit_word<W: std::fmt::Write>(
+        &mut self,
+        space_after: bool,
+        out: &mut W,
+    ) -> std::fmt::Result {
         log::trace!("Commit word: {:?}", self.pending_word);
         assert!(!self.pending_word.is_empty());
 
@@ -262,7 +266,11 @@ impl<'a> FmtWriter<'a> {
     }
 
     fn push_raw(&mut self, text: &str) -> std::fmt::Result {
-        assert!(self.pending_word.is_empty(), "Pending word: {:?}", self.pending_word);
+        assert!(
+            self.pending_word.is_empty(),
+            "Pending word: {:?}",
+            self.pending_word
+        );
         self.pending_line.push_str(text);
         log::trace!("Pending line: {:?}", self.pending_line);
         Ok(())
@@ -379,9 +387,7 @@ impl<'a> FmtWriter<'a> {
                 AttrKind::Key => {
                     // Combine Key with the following Value (if present)
                     // so key=value stays as one token.
-                    if i + 1 < attr.parts.len()
-                        && attr.parts[i + 1].0 == AttrKind::Value
-                    {
+                    if i + 1 < attr.parts.len() && attr.parts[i + 1].0 == AttrKind::Value {
                         let v = &attr.parts[i + 1].1;
                         // Quote the value if it contains whitespace or
                         // characters that would break bare-value parsing.
@@ -523,7 +529,10 @@ impl<'a> FmtWriter<'a> {
                     out.write_str(&self.pending_line)?;
                     self.pending_line.clear();
                     for (ci, width) in col_widths.iter().enumerate() {
-                        let alignment = alignments.get(ci).copied().unwrap_or(Alignment::Unspecified);
+                        let alignment = alignments
+                            .get(ci)
+                            .copied()
+                            .unwrap_or(Alignment::Unspecified);
                         out.write_str("|")?;
                         out.write_str(&Self::format_separator_cell(*width, alignment))?;
                     }
@@ -535,7 +544,10 @@ impl<'a> FmtWriter<'a> {
                     self.pending_line.clear();
                     for (ci, width) in col_widths.iter().enumerate() {
                         let content = cells.get(ci).map(|c| c.content.as_str()).unwrap_or("");
-                        let alignment = alignments.get(ci).copied().unwrap_or(Alignment::Unspecified);
+                        let alignment = alignments
+                            .get(ci)
+                            .copied()
+                            .unwrap_or(Alignment::Unspecified);
                         let padded = Self::pad_content(content, *width, alignment);
                         out.write_str("| ")?;
                         out.write_str(&padded)?;
@@ -626,7 +638,11 @@ impl<'a> FmtWriter<'a> {
                         if is_open {
                             self.blankline(out)?;
                             self.apply_prefix();
-                            let style = self.list_style_stack.last().cloned().unwrap_or(ListStyle::Dash);
+                            let style = self
+                                .list_style_stack
+                                .last()
+                                .cloned()
+                                .unwrap_or(ListStyle::Dash);
                             *list_counter.last_mut().unwrap() += 1;
                             let counter = *list_counter.last().unwrap();
 
@@ -752,9 +768,11 @@ impl<'a> FmtWriter<'a> {
                                 self.commit_word(false, out)?;
                             }
                             let content = std::mem::take(&mut self.pending_line);
-                            self.table_data.as_mut().unwrap().current_row_cells.push(TableCellData {
-                                content: content.trim_end().to_string(),
-                            });
+                            self.table_data.as_mut().unwrap().current_row_cells.push(
+                                TableCellData {
+                                    content: content.trim_end().to_string(),
+                                },
+                            );
                             self.pending_line.clear();
                             self.space_after_pending_word = false;
                         }
@@ -1116,9 +1134,7 @@ impl<'a> FmtWriter<'a> {
                         self.push_raw("* * *")?;
                         let column = self.pending_line.width_cjk();
                         if column < self.max_cols {
-                            self.push_raw(
-                                " *".repeat((self.max_cols - column) / 2).as_str(),
-                            )?;
+                            self.push_raw(" *".repeat((self.max_cols - column) / 2).as_str())?;
                         }
                         self.wrap(out)?;
                         self.need_blankline = true;
@@ -1174,10 +1190,8 @@ impl<'a> FmtWriter<'a> {
                             // marker like "[" from linktext, don't add trailing
                             // space — "![" should follow immediately. Otherwise
                             // add space (normal word separation).
-                            let space = !matches!(
-                                self.pending_word.as_str(),
-                                "[" | "(" | "![" | "\""
-                            );
+                            let space =
+                                !matches!(self.pending_word.as_str(), "[" | "(" | "![" | "\"");
                             self.commit_word(space, out)?;
                         }
                         self.push_word("!")?;
@@ -1215,7 +1229,8 @@ impl<'a> FmtWriter<'a> {
                     }
 
                     // Table separators
-                    "separator_default" | "separator_left" | "separator_right" | "separator_center" => {
+                    "separator_default" | "separator_left" | "separator_right"
+                    | "separator_center" => {
                         if let Some(ref mut td) = self.table_data {
                             let alignment = match annot.as_str() {
                                 "separator_left" => Alignment::Left,
@@ -1242,8 +1257,7 @@ impl<'a> FmtWriter<'a> {
                     "attr_quote_marker" => {
                         // quote around value — no action needed, quoting is handled in render_attr
                     }
-                    "attr_space" => {
-                    }
+                    "attr_space" => {}
                     "class" => {
                         let val = self.src(event);
                         if self.div_needs_class {
@@ -1371,5 +1385,4 @@ impl<'a> FmtWriter<'a> {
         }
         Ok(())
     }
-
 }

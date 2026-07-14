@@ -55,7 +55,12 @@ fn run_format_test(
 
     let output = djotfmt::fmt::format(&input, &config);
 
-    assert_eq!(output, expected, "test case {:?}", input_path.file_stem().unwrap());
+    assert_eq!(
+        output,
+        expected,
+        "test case {:?}",
+        input_path.file_stem().unwrap()
+    );
     Ok(())
 }
 
@@ -68,7 +73,8 @@ fn run_idempotent_test(path: std::path::PathBuf) -> Result<(), Failed> {
     let output = djotfmt::fmt::format(&input, &config);
 
     assert_eq!(
-        output, input,
+        output,
+        input,
         "idempotent test failed for {:?}",
         path.file_stem().unwrap()
     );

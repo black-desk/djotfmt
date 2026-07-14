@@ -116,7 +116,15 @@ fn cp(subject: &str, pos: usize) -> u32 {
 /// Advance a byte offset past the current UTF-8 character.
 fn next_char_pos(subject: &str, pos: usize) -> usize {
     let b = subject.as_bytes().get(pos).copied().unwrap_or(0);
-    let width = if b < 0x80 { 1 } else if b < 0xE0 { 2 } else if b < 0xF0 { 3 } else { 4 };
+    let width = if b < 0x80 {
+        1
+    } else if b < 0xE0 {
+        2
+    } else if b < 0xF0 {
+        3
+    } else {
+        4
+    };
     pos + width
 }
 
@@ -137,31 +145,49 @@ fn get_list_styles(marker: &str) -> Vec<String> {
         return vec![format!("{}X", mb[0] as char)];
     }
     if RE_DECIMAL.is_match(mb) {
-        return vec![std::str::from_utf8(&RE_DIGITS.replace(mb, b"1")).unwrap().to_string()];
+        return vec![std::str::from_utf8(&RE_DIGITS.replace(mb, b"1"))
+            .unwrap()
+            .to_string()];
     }
     if RE_ROMAN_LO_SINGLE.is_match(mb) {
         return vec![
-            std::str::from_utf8(&RE_LO_PLUS.replace(mb, b"i")).unwrap().to_string(),
-            std::str::from_utf8(&RE_LO_SINGLE.replace(mb, b"a")).unwrap().to_string(),
+            std::str::from_utf8(&RE_LO_PLUS.replace(mb, b"i"))
+                .unwrap()
+                .to_string(),
+            std::str::from_utf8(&RE_LO_SINGLE.replace(mb, b"a"))
+                .unwrap()
+                .to_string(),
         ];
     }
     if RE_ROMAN_UP_SINGLE.is_match(mb) {
         return vec![
-            std::str::from_utf8(&RE_UP_PLUS.replace(mb, b"I")).unwrap().to_string(),
-            std::str::from_utf8(&RE_UP_SINGLE.replace(mb, b"A")).unwrap().to_string(),
+            std::str::from_utf8(&RE_UP_PLUS.replace(mb, b"I"))
+                .unwrap()
+                .to_string(),
+            std::str::from_utf8(&RE_UP_SINGLE.replace(mb, b"A"))
+                .unwrap()
+                .to_string(),
         ];
     }
     if RE_ROMAN_LO_MULTI.is_match(mb) {
-        return vec![std::str::from_utf8(&RE_LO_PLUS.replace(mb, b"i")).unwrap().to_string()];
+        return vec![std::str::from_utf8(&RE_LO_PLUS.replace(mb, b"i"))
+            .unwrap()
+            .to_string()];
     }
     if RE_ROMAN_UP_MULTI.is_match(mb) {
-        return vec![std::str::from_utf8(&RE_UP_PLUS.replace(mb, b"I")).unwrap().to_string()];
+        return vec![std::str::from_utf8(&RE_UP_PLUS.replace(mb, b"I"))
+            .unwrap()
+            .to_string()];
     }
     if RE_LO_LETTER.is_match(mb) {
-        return vec![std::str::from_utf8(&RE_LO_SINGLE.replace(mb, b"a")).unwrap().to_string()];
+        return vec![std::str::from_utf8(&RE_LO_SINGLE.replace(mb, b"a"))
+            .unwrap()
+            .to_string()];
     }
     if RE_UP_LETTER.is_match(mb) {
-        return vec![std::str::from_utf8(&RE_UP_SINGLE.replace(mb, b"A")).unwrap().to_string()];
+        return vec![std::str::from_utf8(&RE_UP_SINGLE.replace(mb, b"A"))
+            .unwrap()
+            .to_string()];
     }
     Vec::new()
 }
@@ -259,7 +285,9 @@ impl<'a> EventParser<'a> {
         let mut i = self.pos;
         while i < self.len {
             let b = cp(self.subject, i);
-            if is_eol_char(b) { break; }
+            if is_eol_char(b) {
+                break;
+            }
             i = next_char_pos(self.subject, i);
         }
         self.starteol = i;
@@ -311,7 +339,10 @@ impl<'a> EventParser<'a> {
                     name: "heading".to_string(),
                     ctype: ContentType::Block,
                     content: ContentType::Inline,
-                    extra: ContainerExtra { level, ..Default::default() },
+                    extra: ContainerExtra {
+                        level,
+                        ..Default::default()
+                    },
                     indent: self.indent,
                     inline_parser: None,
                     attribute_parser: None,
@@ -327,7 +358,9 @@ impl<'a> EventParser<'a> {
     fn continue_heading(&mut self, idx: usize) -> bool {
         let level = self.containers[idx].extra.level;
         if let Some((sp, ep, _)) = self.find(&PATT_BANGS) {
-            if ep - sp + 1 == level && find::find_pos(self.subject, &PATT_WHITESPACE, ep + 1, None).is_some() {
+            if ep - sp + 1 == level
+                && find::find_pos(self.subject, &PATT_WHITESPACE, ep + 1, None).is_some()
+            {
                 self.pos = ep + 1;
                 return true;
             }
@@ -360,7 +393,11 @@ impl<'a> EventParser<'a> {
                 name: "footnote".to_string(),
                 ctype: ContentType::Block,
                 content: ContentType::Block,
-                extra: ContainerExtra { note_label: label.to_string(), indent: self.indent, ..Default::default() },
+                extra: ContainerExtra {
+                    note_label: label.to_string(),
+                    indent: self.indent,
+                    ..Default::default()
+                },
                 indent: self.indent,
                 inline_parser: None,
                 attribute_parser: None,
@@ -386,7 +423,11 @@ impl<'a> EventParser<'a> {
                 name: "reference_definition".to_string(),
                 ctype: ContentType::Block,
                 content: ContentType::None,
-                extra: ContainerExtra { key: label.to_string(), indent: self.indent, ..Default::default() },
+                extra: ContainerExtra {
+                    key: label.to_string(),
+                    indent: self.indent,
+                    ..Default::default()
+                },
                 indent: self.indent,
                 inline_parser: None,
                 attribute_parser: None,
@@ -394,7 +435,11 @@ impl<'a> EventParser<'a> {
             self.add_match(sp, sp, "+reference_definition");
             self.add_match(sp, sp + label.len() + 1, "reference_key");
             if !value.is_empty() {
-                self.add_match(self.starteol - value.len(), self.starteol - 1, "reference_value");
+                self.add_match(
+                    self.starteol - value.len(),
+                    self.starteol - 1,
+                    "reference_value",
+                );
             }
             self.pos = self.starteol - 1;
             return true;
@@ -404,7 +449,9 @@ impl<'a> EventParser<'a> {
 
     fn continue_reference_definition(&mut self, idx: usize) -> bool {
         let tip_indent = self.containers[idx].extra.indent;
-        if tip_indent >= self.indent { return false; }
+        if tip_indent >= self.indent {
+            return false;
+        }
         if self.pos < self.starteol {
             if let Some((_sp, ep, _)) = self.find(&PATT_NON_WHITESPACE) {
                 if ep == self.starteol - 1 {
@@ -443,18 +490,27 @@ impl<'a> EventParser<'a> {
                 marker = self.subject[tsp..tsp + 5].to_string();
             }
             let styles = get_list_styles(&marker);
-            if styles.is_empty() { return false; }
+            if styles.is_empty() {
+                return false;
+            }
             self.add_container(Container {
                 name: "list".to_string(),
                 ctype: ContentType::Block,
                 content: ContentType::ListItem,
-                extra: ContainerExtra { styles: styles.clone(), indent: self.indent, ..Default::default() },
+                extra: ContainerExtra {
+                    styles: styles.clone(),
+                    indent: self.indent,
+                    ..Default::default()
+                },
                 indent: self.indent,
                 inline_parser: None,
                 attribute_parser: None,
             });
             let mut annot = "+list".to_string();
-            for style in &styles { annot.push_str("|"); annot.push_str(style); }
+            for style in &styles {
+                annot.push_str("|");
+                annot.push_str(style);
+            }
             self.add_match(sp, ep - 1, &annot);
             return true;
         }
@@ -463,7 +519,9 @@ impl<'a> EventParser<'a> {
 
     fn continue_list(&mut self, idx: usize) -> bool {
         let tip_indent = self.containers[idx].extra.indent;
-        if self.indent > tip_indent || self.pos == self.starteol { return true; }
+        if self.indent > tip_indent || self.pos == self.starteol {
+            return true;
+        }
         if let Some((sp, ep, _caps)) = self.find(&PATT_LIST_MARKER) {
             let mut marker = self.subject[sp..ep].to_string();
             if let Some((tsp, _tep, _)) = self.find(&PATT_TASK_LIST_MARKER) {
@@ -471,7 +529,11 @@ impl<'a> EventParser<'a> {
             }
             let styles = get_list_styles(&marker);
             let container_styles = &self.containers[idx].extra.styles;
-            let newstyles: Vec<String> = container_styles.iter().filter(|s| styles.contains(s)).cloned().collect();
+            let newstyles: Vec<String> = container_styles
+                .iter()
+                .filter(|s| styles.contains(s))
+                .cloned()
+                .collect();
             if !newstyles.is_empty() {
                 self.containers[idx].extra.styles = newstyles;
                 return true;
@@ -489,23 +551,35 @@ impl<'a> EventParser<'a> {
                 checkbox = Some(self.subject.as_bytes()[tsp + 3] as char);
             }
             let styles = get_list_styles(&marker);
-            if styles.is_empty() { return false; }
+            if styles.is_empty() {
+                return false;
+            }
             self.add_container(Container {
                 name: "list_item".to_string(),
                 ctype: ContentType::ListItem,
                 content: ContentType::Block,
-                extra: ContainerExtra { styles: styles.clone(), indent: self.indent, ..Default::default() },
+                extra: ContainerExtra {
+                    styles: styles.clone(),
+                    indent: self.indent,
+                    ..Default::default()
+                },
                 indent: self.indent,
                 inline_parser: None,
                 attribute_parser: None,
             });
             let mut annot = "+list_item".to_string();
-            for style in &styles { annot.push_str("|"); annot.push_str(style); }
+            for style in &styles {
+                annot.push_str("|");
+                annot.push_str(style);
+            }
             self.add_match(sp, ep - 1, &annot);
             self.pos = ep;
             if let Some(cb) = checkbox {
-                if cb == ' ' { self.add_match(sp + 2, sp + 4, "checkbox_unchecked"); }
-                else { self.add_match(sp + 2, sp + 4, "checkbox_checked"); }
+                if cb == ' ' {
+                    self.add_match(sp + 2, sp + 4, "checkbox_unchecked");
+                } else {
+                    self.add_match(sp + 2, sp + 4, "checkbox_checked");
+                }
                 self.pos = sp + 5;
             }
             return true;
@@ -525,7 +599,10 @@ impl<'a> EventParser<'a> {
                 name: "table".to_string(),
                 ctype: ContentType::Block,
                 content: ContentType::Cells,
-                extra: ContainerExtra { columns: 0, ..Default::default() },
+                extra: ContainerExtra {
+                    columns: 0,
+                    ..Default::default()
+                },
                 indent: self.indent,
                 inline_parser: None,
                 attribute_parser: None,
@@ -550,11 +627,16 @@ impl<'a> EventParser<'a> {
     }
 
     fn try_attributes(&mut self) -> bool {
-        if cp(self.subject, self.pos) != 123 { return false; }
+        if cp(self.subject, self.pos) != 123 {
+            return false;
+        }
         let mut attribute_parser = AttributeParser::new(self.subject);
         let res = attribute_parser.feed(self.pos, self.starteol);
-        if res.0 == "fail" { return false; }
-        if res.0 == "done" && find::find_pos(self.subject, &PATT_ENDLINE, res.1 + 1, None).is_none() {
+        if res.0 == "fail" {
+            return false;
+        }
+        if res.0 == "done" && find::find_pos(self.subject, &PATT_ENDLINE, res.1 + 1, None).is_none()
+        {
             return false;
         }
         let container = Container {
@@ -580,13 +662,20 @@ impl<'a> EventParser<'a> {
     fn continue_attributes(&mut self, idx: usize) -> bool {
         let status = self.containers[idx].extra.status.clone();
         let tip_indent = self.containers[idx].extra.indent;
-        if status == "done" { return false; }
+        if status == "done" {
+            return false;
+        }
         if self.indent > tip_indent {
-            self.containers[idx].extra.slices.push((self.pos, self.starteol));
+            self.containers[idx]
+                .extra
+                .slices
+                .push((self.pos, self.starteol));
             if let Some(ref mut ap) = self.containers[idx].attribute_parser {
                 let res = ap.feed(self.pos, self.endeol);
                 self.containers[idx].extra.status = res.0.to_string();
-                if res.0 != "fail" || find::find_pos(self.subject, &PATT_ENDLINE, res.1 + 1, None).is_none() {
+                if res.0 != "fail"
+                    || find::find_pos(self.subject, &PATT_ENDLINE, res.1 + 1, None).is_none()
+                {
                     self.pos = self.starteol;
                     return true;
                 }
@@ -618,19 +707,26 @@ impl<'a> EventParser<'a> {
     fn try_fenced_div(&mut self) -> bool {
         if let Some((sp, ep, caps)) = self.find(&PATT_DIV_FENCE_START) {
             let colons = &caps[0];
-            if let Some((clsp, clep, caps2)) = find::find(self.subject, &PATT_DIV_FENCE_END, ep + 1, None) {
+            if let Some((clsp, clep, caps2)) =
+                find::find(self.subject, &PATT_DIV_FENCE_END, ep + 1, None)
+            {
                 let lang = &caps2[0];
                 self.add_container(Container {
                     name: "fenced_div".to_string(),
                     ctype: ContentType::Block,
                     content: ContentType::Block,
-                    extra: ContainerExtra { colons: colons.len(), ..Default::default() },
+                    extra: ContainerExtra {
+                        colons: colons.len(),
+                        ..Default::default()
+                    },
                     indent: self.indent,
                     inline_parser: None,
                     attribute_parser: None,
                 });
                 self.add_match(sp, ep, "+div");
-                if !lang.is_empty() { self.add_match(clsp, clsp + lang.len() - 1, "class"); }
+                if !lang.is_empty() {
+                    self.add_match(clsp, clsp + lang.len() - 1, "class");
+                }
                 self.pos = clep + 1;
                 self.finished_line = true;
                 return true;
@@ -641,7 +737,9 @@ impl<'a> EventParser<'a> {
 
     fn continue_fenced_div(&mut self, idx: usize) -> bool {
         if let Some(tip) = self.tip() {
-            if tip.name == "code_block" { return true; }
+            if tip.name == "code_block" {
+                return true;
+            }
         }
         let colons = self.containers[idx].extra.colons;
         if let Some((sp, ep, caps)) = self.find(&PATT_DIV_FENCE) {
@@ -668,12 +766,17 @@ impl<'a> EventParser<'a> {
                 regex::escape(border),
                 regex::escape(&first_char.to_string()),
                 "*"
-            )).unwrap();
+            ))
+            .unwrap();
             let container = Container {
                 name: "code_block".to_string(),
                 ctype: ContentType::Block,
                 content: ContentType::Text,
-                extra: ContainerExtra { close_pattern: Some(close_patt), indent: self.indent, ..Default::default() },
+                extra: ContainerExtra {
+                    close_pattern: Some(close_patt),
+                    indent: self.indent,
+                    ..Default::default()
+                },
                 indent: self.indent,
                 inline_parser: None,
                 attribute_parser: None,
@@ -682,8 +785,11 @@ impl<'a> EventParser<'a> {
             self.add_match(sp, sp + border.len() - 1, "+code_block");
             if !lang.is_empty() {
                 let langstart = sp + border.len() + ws.len();
-                if is_raw { self.add_match(langstart, langstart + lang.len() - 1, "raw_format"); }
-                else { self.add_match(langstart, langstart + lang.len() - 1, "code_language"); }
+                if is_raw {
+                    self.add_match(langstart, langstart + lang.len() - 1, "raw_format");
+                } else {
+                    self.add_match(langstart, langstart + lang.len() - 1, "code_language");
+                }
             }
             self.pos = ep;
             self.finished_line = true;
@@ -731,7 +837,9 @@ impl<'a> EventParser<'a> {
         self.skip_space(); // skip space after |
         let mut cell_complete = false;
         while !cell_complete {
-            if let Some((_msp, mep)) = find::find_pos(self.subject, &PATT_NEXT_BAR_OR_TICKS, self.pos, Some(ep)) {
+            if let Some((_msp, mep)) =
+                find::find_pos(self.subject, &PATT_NEXT_BAR_OR_TICKS, self.pos, Some(ep))
+            {
                 let nextbar = mep;
                 if self.subject.as_bytes()[nextbar] == b'`' || inline_parser.verbatim > 0 {
                     inline_parser.feed(self.pos, nextbar);
@@ -743,10 +851,15 @@ impl<'a> EventParser<'a> {
                     cell_complete = true;
                 }
                 self.pos = nextbar + 1;
-            } else { break; }
+            } else {
+                break;
+            }
         }
-        if cell_complete { Some((sp, cell_ep, inline_parser.get_matches())) }
-        else { None }
+        if cell_complete {
+            Some((sp, cell_ep, inline_parser.get_matches()))
+        } else {
+            None
+        }
     }
 
     fn parse_table_row(&mut self, sp: usize, ep: usize) -> bool {
@@ -758,19 +871,35 @@ impl<'a> EventParser<'a> {
         let mut p = self.pos;
         let mut sepfound = false;
         while !sepfound {
-            if let Some((ssp, sep, caps)) = find::find(self.subject, &PATT_ROW_SEP, p, Some(self.starteol)) {
-                let left = &caps[0]; let right = &caps[1]; let trailing = &caps[2];
-                let st = if !left.is_empty() && !right.is_empty() { "separator_center" }
-                    else if !right.is_empty() { "separator_right" }
-                    else if !left.is_empty() { "separator_left" }
-                    else { "separator_default" };
+            if let Some((ssp, sep, caps)) =
+                find::find(self.subject, &PATT_ROW_SEP, p, Some(self.starteol))
+            {
+                let left = &caps[0];
+                let right = &caps[1];
+                let trailing = &caps[2];
+                let st = if !left.is_empty() && !right.is_empty() {
+                    "separator_center"
+                } else if !right.is_empty() {
+                    "separator_right"
+                } else if !left.is_empty() {
+                    "separator_left"
+                } else {
+                    "separator_default"
+                };
                 seps.push((ssp, sep - trailing.len(), st.to_string()));
                 p = sep + 1;
-                if p == self.starteol { sepfound = true; break; }
-            } else { break; }
+                if p == self.starteol {
+                    sepfound = true;
+                    break;
+                }
+            } else {
+                break;
+            }
         }
         if sepfound {
-            for (s, e, annot) in &seps { self.add_match(*s, *e, annot); }
+            for (s, e, annot) in &seps {
+                self.add_match(*s, *e, annot);
+            }
             self.add_match(self.starteol - 1, self.starteol - 1, "-row");
             self.pos = self.starteol;
             self.finished_line = true;
@@ -783,14 +912,18 @@ impl<'a> EventParser<'a> {
                 for (i, m) in cell_matches.iter().enumerate() {
                     let mut e = m.endpos;
                     if i == cell_matches.len() - 1 && m.annot == "str" {
-                        while cp(self.subject, e) == C_SPACE && e >= m.startpos { e -= 1; }
+                        while cp(self.subject, e) == C_SPACE && e >= m.startpos {
+                            e -= 1;
+                        }
                     }
                     self.add_match(m.startpos, e, &m.annot);
                 }
                 self.add_match(cep, cep, "-cell");
             } else {
                 self.pos = startpos;
-                while self.matches.len() > orig_matches { self.matches.pop(); }
+                while self.matches.len() > orig_matches {
+                    self.matches.pop();
+                }
                 return false;
             }
         }
@@ -828,8 +961,11 @@ impl<'a> EventParser<'a> {
                     "para" | "caption" => self.find(&PATT_WHITESPACE).is_none(),
                     _ => self.pos < self.starteol || self.starteol > self.startline,
                 };
-                if matches { self.last_matched_container = idx as isize; }
-                else { break; }
+                if matches {
+                    self.last_matched_container = idx as isize;
+                } else {
+                    break;
+                }
                 idx += 1;
             }
 
@@ -844,7 +980,9 @@ impl<'a> EventParser<'a> {
                 let is_blank = self.pos == self.starteol;
                 let last_match = if self.last_matched_container >= 0 {
                     self.containers.get(self.last_matched_container as usize)
-                } else { None };
+                } else {
+                    None
+                };
                 let mut last_match_content = last_match.map(|c| c.content);
                 let check_starts = !is_blank
                     && (last_match_content.is_none()
@@ -865,7 +1003,8 @@ impl<'a> EventParser<'a> {
                             let tip = self.tip();
                             let tip_content = tip.map(|t| t.content);
                             last_match_content = tip_content;
-                            check = tip_content == Some(ContentType::Block) || tip_content == Some(ContentType::ListItem);
+                            check = tip_content == Some(ContentType::Block)
+                                || tip_content == Some(ContentType::ListItem);
                         }
                     }
                 }
@@ -880,23 +1019,32 @@ impl<'a> EventParser<'a> {
                         && self.last_matched_container < self.containers.len() as isize - 1
                         && tip_content == Some(ContentType::Inline);
 
-                    if !is_lazy { self.close_unmatched_containers(); }
+                    if !is_lazy {
+                        self.close_unmatched_containers();
+                    }
 
                     let tip = self.tip();
                     let tip_content = tip.map(|c| c.content);
 
                     if tip_content.is_none() || tip_content == Some(ContentType::Block) {
                         if is_blank {
-                            if !new_starts { self.add_match(self.pos, self.endeol, "blankline"); }
-                        } else { self.open_paragraph(); }
+                            if !new_starts {
+                                self.add_match(self.pos, self.endeol, "blankline");
+                            }
+                        } else {
+                            self.open_paragraph();
+                        }
                     }
                     if tip_content == Some(ContentType::Text) {
                         let tip_indent = self.tip().map(|t| t.indent).unwrap_or(0);
                         let mut startpos = self.pos;
-                        if self.indent > tip_indent { startpos -= self.indent - tip_indent; }
+                        if self.indent > tip_indent {
+                            startpos -= self.indent - tip_indent;
+                        }
                         self.add_match(startpos, self.endeol, "str");
                     } else if tip_content == Some(ContentType::Inline) && !is_blank {
-                        if let Some(ref mut ip) = self.containers.last_mut().unwrap().inline_parser {
+                        if let Some(ref mut ip) = self.containers.last_mut().unwrap().inline_parser
+                        {
                             ip.feed(self.pos, self.endeol);
                         }
                     }
@@ -914,21 +1062,45 @@ impl<'a> EventParser<'a> {
         // Only try specs whose type matches spec_type
         // type: Block specs
         if spec_type == ContentType::Block {
-            if self.try_block_quote() { return Some(()); }
-            if self.try_heading() { return Some(()); }
-            if self.try_caption() { return Some(()); }
-            if self.try_footnote() { return Some(()); }
-            if self.try_reference_definition() { return Some(()); }
-            if self.try_thematic_break() { return Some(()); }
-            if self.try_list() { return Some(()); }
-            if self.try_table() { return Some(()); }
-            if self.try_attributes() { return Some(()); }
-            if self.try_fenced_div() { return Some(()); }
-            if self.try_code_block() { return Some(()); }
+            if self.try_block_quote() {
+                return Some(());
+            }
+            if self.try_heading() {
+                return Some(());
+            }
+            if self.try_caption() {
+                return Some(());
+            }
+            if self.try_footnote() {
+                return Some(());
+            }
+            if self.try_reference_definition() {
+                return Some(());
+            }
+            if self.try_thematic_break() {
+                return Some(());
+            }
+            if self.try_list() {
+                return Some(());
+            }
+            if self.try_table() {
+                return Some(());
+            }
+            if self.try_attributes() {
+                return Some(());
+            }
+            if self.try_fenced_div() {
+                return Some(());
+            }
+            if self.try_code_block() {
+                return Some(());
+            }
         }
         // type: ListItem specs
         if spec_type == ContentType::ListItem {
-            if self.try_list_item() { return Some(()); }
+            if self.try_list_item() {
+                return Some(());
+            }
         }
         None
     }
@@ -942,7 +1114,10 @@ impl<'a> EventParser<'a> {
                         let mut last: Option<&Event> = None;
                         for m in inline_matches {
                             if let Some(l) = last {
-                                if l.annot == "str" && m.annot == "str" && m.startpos == l.endpos + 1 {
+                                if l.annot == "str"
+                                    && m.annot == "str"
+                                    && m.startpos == l.endpos + 1
+                                {
                                     self.matches.last_mut().unwrap().endpos = m.endpos;
                                     last = Some(&self.matches[self.matches.len() - 1]);
                                     continue;
@@ -955,16 +1130,36 @@ impl<'a> EventParser<'a> {
                     // NOTE: djot.js hardcodes this.pos - 1 for the close event position.
                     // We derive it from the last match's endpos + 1 instead, which is
                     // equivalent because endpos is always < pos after inline parsing.
-                    let last_ep = self.matches.last().map(|e| e.endpos + 1).unwrap_or(self.pos);
-                    self.add_match(last_ep.min(self.maxoffset), last_ep.min(self.maxoffset), &format!("-{}", container.name));
+                    let last_ep = self
+                        .matches
+                        .last()
+                        .map(|e| e.endpos + 1)
+                        .unwrap_or(self.pos);
+                    self.add_match(
+                        last_ep.min(self.maxoffset),
+                        last_ep.min(self.maxoffset),
+                        &format!("-{}", container.name),
+                    );
                 }
-                "block_quote" => { self.add_match(self.pos, self.pos, "-block_quote"); }
-                "footnote" => { self.add_match(self.pos, self.pos, "-footnote"); }
-                "reference_definition" => { self.add_match(self.pos, self.pos, "-reference_definition"); }
+                "block_quote" => {
+                    self.add_match(self.pos, self.pos, "-block_quote");
+                }
+                "footnote" => {
+                    self.add_match(self.pos, self.pos, "-footnote");
+                }
+                "reference_definition" => {
+                    self.add_match(self.pos, self.pos, "-reference_definition");
+                }
                 "thematic_break" => {}
-                "list" => { self.add_match(self.pos, self.pos, "-list"); }
-                "list_item" => { self.add_match(self.pos - 1, self.pos - 1, "-list_item"); }
-                "table" => { self.add_match(self.pos, self.pos, "-table"); }
+                "list" => {
+                    self.add_match(self.pos, self.pos, "-list");
+                }
+                "list_item" => {
+                    self.add_match(self.pos - 1, self.pos - 1, "-list_item");
+                }
+                "table" => {
+                    self.add_match(self.pos, self.pos, "-table");
+                }
                 "attributes" => {
                     if container.extra.status == "continue" {
                         self.add_match(container.extra.startpos, container.extra.startpos, "+para");
@@ -980,32 +1175,63 @@ impl<'a> EventParser<'a> {
                         // JS uses addContainer(..., true) here — skip closeUnmatched
                         // but still check content type compatibility.
                         self.add_container_skip_close_unmatched(para);
-                        if let Some(ref mut ip) = self.containers.last_mut().unwrap().inline_parser {
+                        if let Some(ref mut ip) = self.containers.last_mut().unwrap().inline_parser
+                        {
                             ip.attribute_slices = Some(container.extra.slices);
                             ip.reparse_attributes();
                         }
                         self.close_tip();
                     } else {
-                        self.add_match(container.extra.startpos, container.extra.startpos, "+block_attributes");
+                        self.add_match(
+                            container.extra.startpos,
+                            container.extra.startpos,
+                            "+block_attributes",
+                        );
                         if let Some(ap) = container.attribute_parser {
-                            for m in ap.get_matches() { self.matches.push(m); }
+                            for m in ap.get_matches() {
+                                self.matches.push(m);
+                            }
                         }
                         self.add_match(self.pos, self.pos, "-block_attributes");
                     }
                 }
                 "fenced_div" => {
-                    let sp = if container.extra.end_fence_startpos > 0 { container.extra.end_fence_startpos } else { self.pos };
-                    let ep = if container.extra.end_fence_endpos > 0 { container.extra.end_fence_endpos } else { self.pos };
+                    let sp = if container.extra.end_fence_startpos > 0 {
+                        container.extra.end_fence_startpos
+                    } else {
+                        self.pos
+                    };
+                    let ep = if container.extra.end_fence_endpos > 0 {
+                        container.extra.end_fence_endpos
+                    } else {
+                        self.pos
+                    };
                     self.add_match(sp, ep, "-div");
                 }
                 "code_block" => {
-                    let sp = if container.extra.end_fence_startpos > 0 { container.extra.end_fence_startpos } else { self.pos };
-                    let ep = if container.extra.end_fence_endpos > 0 { container.extra.end_fence_endpos } else { self.pos };
+                    let sp = if container.extra.end_fence_startpos > 0 {
+                        container.extra.end_fence_startpos
+                    } else {
+                        self.pos
+                    };
+                    let ep = if container.extra.end_fence_endpos > 0 {
+                        container.extra.end_fence_endpos
+                    } else {
+                        self.pos
+                    };
                     self.add_match(sp, ep, "-code_block");
                 }
                 _ => {
-                    let last_ep = self.matches.last().map(|e| e.endpos + 1).unwrap_or(self.pos);
-                    self.add_match(last_ep.min(self.maxoffset), last_ep.min(self.maxoffset), &format!("-{}", container.name));
+                    let last_ep = self
+                        .matches
+                        .last()
+                        .map(|e| e.endpos + 1)
+                        .unwrap_or(self.pos);
+                    self.add_match(
+                        last_ep.min(self.maxoffset),
+                        last_ep.min(self.maxoffset),
+                        &format!("-{}", container.name),
+                    );
                 }
             }
         }

@@ -10,3 +10,6 @@
 	path = third_party/djot.js
 	url = https://github.com/jgm/djot.js
 	branch = main
+[submodule ".format"]
+	path = .format
+	url = https://github.com/black-desk/.format

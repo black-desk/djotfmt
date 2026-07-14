@@ -12,7 +12,7 @@ on:
       - main
       - release/*
   schedule:
-    - cron: '0 0 * * 0' # Every Sunday at midnight UTC
+    - cron: "0 0 * * 0" # Every Sunday at midnight UTC
   workflow_dispatch:
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: black-desk/workflows/generic@master
         env:
-          CLEAN_IGNORE: '*.in'
+          CLEAN_IGNORE: "*.in"
 
   format:
     runs-on: ubuntu-latest
@@ -37,7 +37,7 @@ jobs:
     # toolchain, missing submodule, failed build) instead of silently skipping.
     # Guards against a future runner-image change that drops node/npm unnoticed.
     env:
-      DJOTFMT_REQUIRE_CONFORMANCE: '1'
+      DJOTFMT_REQUIRE_CONFORMANCE: "1"
 
     runs-on: ubuntu-latest
     steps:

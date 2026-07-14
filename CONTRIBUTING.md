@@ -8,7 +8,7 @@ Thank you for your interest in contributing to djotfmt!
 
 ## Build
 
-``` bash
+```bash
 cargo build
 ```
 
@@ -18,7 +18,7 @@ cargo build
 
 ## Test
 
-``` bash
+```bash
 cargo test
 ```
 
@@ -28,23 +28,22 @@ cargo test
 
 ## Debug
 
-djotfmt uses the `log` crate for logging. You can increase the verbosity
-level with the `-v` flag to see more detailed information about the
-formatting process.
+djotfmt uses the `log` crate for logging. You can increase the verbosity level
+with the `-v` flag to see more detailed information about the formatting
+process.
 
-- *(default)* Warn: Only warnings and errors.
+- _(default)_ Warn: Only warnings and errors.
 
 - `-v` Info: General informational messages.
 
-- `-vv` Debug: Show jotdown parse events and the corresponding source
-  text.
+- `-vv` Debug: Show jotdown parse events and the corresponding source text.
 
-- `-vvv` Trace: Show internal rendering state: pending words, pending
-  lines, prefix stack, etc.
+- `-vvv` Trace: Show internal rendering state: pending words, pending lines,
+  prefix stack, etc.
 
 For example, to debug the formatting of a file with full trace output:
 
-``` bash
+```bash
 cargo run -- -vvv input.dj
 ```
 

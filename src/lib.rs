@@ -2,5 +2,5 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-pub mod parser;
 pub mod fmt;
+pub mod parser;
