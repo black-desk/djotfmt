@@ -23,6 +23,11 @@ jobs:
         env:
           CLEAN_IGNORE: '*.in'
 
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: black-desk/workflows/format@master
+
   rust:
     permissions:
       id-token: write
@@ -43,6 +48,7 @@ jobs:
     if: always()
     needs:
       - generic
+      - format
       - rust
     runs-on: ubuntu-latest
     steps:
