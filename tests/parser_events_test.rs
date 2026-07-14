@@ -237,7 +237,10 @@ fn ensure_djot_built() {
         }
     }
 
-    npm(&["run", "build"], "build djot.js lib/ from the pinned source");
+    npm(
+        &["run", "build"],
+        "build djot.js lib/ from the pinned source",
+    );
 }
 
 /// `true` iff `lib_cli` is at least as new as the newest file under `src_dir`.
@@ -308,11 +311,7 @@ fn walk(dir: &std::path::Path, f: &mut dyn FnMut(&std::path::Path)) {
     }
 }
 
-fn run_parser_event_test(
-    test_file: &str,
-    case_index: usize,
-    input: &str,
-) -> Result<(), Failed> {
+fn run_parser_event_test(test_file: &str, case_index: usize, input: &str) -> Result<(), Failed> {
     let expected = get_djot_js_output(input).map_err(Failed::from)?;
 
     // Normalize input same way as parser (add trailing \n)
@@ -325,17 +324,19 @@ fn run_parser_event_test(
 
     // Get Rust parser output (byte offsets) and convert to UTF-16 positions
     let rust_events = djotfmt::parser::parse_events(input);
-    let utf16_events: Vec<djotfmt::parser::Event> = rust_events.into_iter().map(|ev| {
-        djotfmt::parser::Event {
+    let utf16_events: Vec<djotfmt::parser::Event> = rust_events
+        .into_iter()
+        .map(|ev| djotfmt::parser::Event {
             startpos: map.get(ev.startpos).copied().unwrap_or(0),
             endpos: map.get(ev.endpos).copied().unwrap_or(0),
             annot: ev.annot,
-        }
-    }).collect();
+        })
+        .collect();
     let actual = format_events(&utf16_events);
 
     assert_eq!(
-        actual, expected,
+        actual,
+        expected,
         "{}: case #{} (input: {:?})",
         test_file,
         case_index,

@@ -16,7 +16,7 @@ This project is a [`djot`](https://djot.net) formatter written in Rust.
 
 ## Build
 
-``` bash
+```bash
 cargo build --release
 ```
 
@@ -26,7 +26,7 @@ cargo build --release
 
 ## Test
 
-``` bash
+```bash
 cargo test --release
 ```
 
@@ -36,7 +36,7 @@ cargo test --release
 
 ## Install
 
-``` bash
+```bash
 cargo install --path .
 ```
 
@@ -48,13 +48,13 @@ cargo install --path .
 
 You can check the usage by running:
 
-``` bash
+```bash
 cargo run -r -- --help
 ```
 
 Or after installing:
 
-``` bash
+```bash
 djotfmt --help
 ```
 
@@ -64,8 +64,7 @@ djotfmt --help
 
 ## Contributing
 
-- [Djot syntax
-  reference](https://htmlpreview.github.io/?https://github.com/jgm/djot/blob/master/doc/syntax.html)
+- [Djot syntax reference](https://htmlpreview.github.io/?https://github.com/jgm/djot/blob/master/doc/syntax.html)
 
 </div>
 

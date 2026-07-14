@@ -136,8 +136,7 @@ impl<'a> AttributeParser<'a> {
                     let is_id_char = !c.is_whitespace()
                         && !matches!(
                             c,
-                            ']'
-                                | '['
+                            ']' | '['
                                 | '~'
                                 | '!'
                                 | '@'
