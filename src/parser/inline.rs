@@ -296,7 +296,7 @@ impl<'a> InlineParser<'a> {
 
         let lastmatch = self.matches.last();
         let has_open_marker = lastmatch.map(|m| m.annot == "open_marker").unwrap_or(false);
-        let has_close_marker = pos + 1 <= endpos && cp(subject, pos + 1) == C_RIGHT_BRACE;
+        let has_close_marker = pos < endpos && cp(subject, pos + 1) == C_RIGHT_BRACE;
 
         let mut endcloser = pos;
         let mut startopener = pos;
@@ -308,7 +308,7 @@ impl<'a> InlineParser<'a> {
             can_close = false;
         }
         if !has_open_marker && has_close_marker {
-            endcloser = if pos + 1 <= endpos { pos + 1 } else { pos };
+            endcloser = if pos < endpos { pos + 1 } else { pos };
             can_close = true;
             can_open = false;
         }
@@ -409,11 +409,7 @@ impl<'a> InlineParser<'a> {
         let subject = self.subject;
 
         // Find the [ openers
-        let ob_idx = self.openers.iter().position(|(k, _)| *k == "[");
-        if ob_idx.is_none() {
-            return None;
-        }
-        let ob_idx = ob_idx.unwrap();
+        let ob_idx = self.openers.iter().position(|(k, _)| *k == "[")?;
 
         if self.openers[ob_idx].1.is_empty() {
             return None;
@@ -474,7 +470,7 @@ impl<'a> InlineParser<'a> {
             self.add_match(pos, pos, "-reference");
             self.clear_openers(opener_startpos, pos);
             return Some(pos + 1);
-        } else if pos + 1 <= endpos && cp(subject, pos + 1) == C_LEFT_BRACKET {
+        } else if pos < endpos && cp(subject, pos + 1) == C_LEFT_BRACKET {
             self.openers[ob_idx].1[last_idx].annot = Some("reference_link".to_string());
             self.add_match(pos, pos, "str");
             self.openers[ob_idx].1[last_idx].sub_match_index = self.matches.len() - 1;
@@ -484,7 +480,7 @@ impl<'a> InlineParser<'a> {
             let sp = self.openers[ob_idx].1[last_idx].startpos + 1;
             self.clear_openers(sp, pos - 1);
             return Some(pos + 2);
-        } else if pos + 1 <= endpos && cp(subject, pos + 1) == C_LEFT_PAREN {
+        } else if pos < endpos && cp(subject, pos + 1) == C_LEFT_PAREN {
             // clear ( openers
             if let Some(parens_idx) = self.openers.iter_mut().position(|(k, _)| *k == "(") {
                 self.openers[parens_idx].1.clear();
@@ -499,7 +495,7 @@ impl<'a> InlineParser<'a> {
             let sp = self.openers[ob_idx].1[last_idx].startpos + 1;
             self.clear_openers(sp, pos - 1);
             return Some(pos + 2);
-        } else if pos + 1 <= endpos && cp(subject, pos + 1) == C_LEFT_BRACE {
+        } else if pos < endpos && cp(subject, pos + 1) == C_LEFT_BRACE {
             // bracketed span
             self.add_match_at(opener_match_index, opener_startpos, opener_endpos, "+span");
             self.add_match(pos, pos, "-span");
@@ -639,8 +635,8 @@ impl<'a> InlineParser<'a> {
             return Some(pos + 2);
         }
 
-        let all_em = hyphens % 3 == 0;
-        let all_en = hyphens % 2 == 0;
+        let all_em = hyphens.is_multiple_of(3);
+        let all_en = hyphens.is_multiple_of(2);
         let mut p = pos;
         while hyphens > 0 {
             if all_em {
@@ -651,7 +647,7 @@ impl<'a> InlineParser<'a> {
                 self.add_match(p, p + 1, "en_dash");
                 p += 2;
                 hyphens -= 2;
-            } else if hyphens >= 3 && (hyphens % 2 != 0 || hyphens > 4) {
+            } else if hyphens >= 3 && (!hyphens.is_multiple_of(2) || hyphens > 4) {
                 self.add_match(p, p + 2, "em_dash");
                 p += 3;
                 hyphens -= 3;
@@ -733,7 +729,7 @@ impl<'a> InlineParser<'a> {
             let c = cp(subject, pos);
 
             if c == C_CR || c == C_LF {
-                if c == C_CR && cp(subject, pos + 1) == C_LF && pos + 1 <= endpos {
+                if c == C_CR && cp(subject, pos + 1) == C_LF && pos < endpos {
                     self.add_match(pos, pos + 1, "soft_break");
                     pos += 2;
                 } else {
@@ -750,14 +746,24 @@ impl<'a> InlineParser<'a> {
                             // check for raw attribute
                             let has_raw =
                                 find::find(subject, &PATT_RAW_ATTRIBUTE, endchar + 1, Some(endpos));
-                            if has_raw.is_some() && self.verbatim_type == "verbatim" {
-                                let (m2_start, m2_end, _) = has_raw.unwrap();
-                                self.add_match(pos, endchar, &format!("-{}", self.verbatim_type));
-                                self.add_match(m2_start, m2_end, "raw_format");
-                                pos = m2_end + 1;
-                            } else {
-                                self.add_match(pos, endchar, &format!("-{}", self.verbatim_type));
-                                pos = endchar + 1;
+                            match has_raw {
+                                Some((m2_start, m2_end, _)) if self.verbatim_type == "verbatim" => {
+                                    self.add_match(
+                                        pos,
+                                        endchar,
+                                        &format!("-{}", self.verbatim_type),
+                                    );
+                                    self.add_match(m2_start, m2_end, "raw_format");
+                                    pos = m2_end + 1;
+                                }
+                                _ => {
+                                    self.add_match(
+                                        pos,
+                                        endchar,
+                                        &format!("-{}", self.verbatim_type),
+                                    );
+                                    pos = endchar + 1;
+                                }
                             }
                             self.verbatim = 0;
                             self.verbatim_type = "verbatim".to_string();
@@ -845,7 +851,7 @@ impl<'a> InlineParser<'a> {
                             self.add_match(pos, pos, "escape");
                             self.add_match(m_start, m_end, "str");
                             Some(m_end + 1)
-                        } else if pos + 1 <= endpos && cp(subject, pos + 1) == C_SPACE {
+                        } else if pos < endpos && cp(subject, pos + 1) == C_SPACE {
                             self.add_match(pos, pos, "escape");
                             self.add_match(pos + 1, pos + 1, "non_breaking_space");
                             Some(pos + 2)
@@ -922,22 +928,12 @@ impl<'a> InlineParser<'a> {
                     C_ASTERISK => {
                         Some(self.between_matched("*", "strong", "str", |_s, _p| true, pos, endpos))
                     }
-                    C_PLUS => Some(self.between_matched(
-                        "+",
-                        "insert",
-                        "str",
-                        |s, p| has_brace(s, p),
-                        pos,
-                        endpos,
-                    )),
-                    C_EQUALS => Some(self.between_matched(
-                        "=",
-                        "mark",
-                        "str",
-                        |s, p| has_brace(s, p),
-                        pos,
-                        endpos,
-                    )),
+                    C_PLUS => {
+                        Some(self.between_matched("+", "insert", "str", has_brace, pos, endpos))
+                    }
+                    C_EQUALS => {
+                        Some(self.between_matched("=", "mark", "str", has_brace, pos, endpos))
+                    }
                     C_SINGLE_QUOTE => Some(self.between_matched(
                         "'",
                         "single_quoted",
