@@ -43,9 +43,7 @@ fn build_byte_to_utf16_map(input: &str) -> Vec<usize> {
         let utf8_len = c.len_utf8();
         let utf16_len = c.len_utf16();
         let last_utf16 = utf16_pos + utf16_len - 1;
-        for b in byte_pos..byte_pos + utf8_len {
-            map[b] = last_utf16;
-        }
+        map[byte_pos..byte_pos + utf8_len].fill(last_utf16);
         byte_pos += utf8_len;
         utf16_pos += utf16_len;
     }

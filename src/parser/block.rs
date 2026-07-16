@@ -59,6 +59,8 @@ enum ContentType {
     ListItem,
 }
 
+#[derive(Default)]
+#[allow(dead_code)]
 struct ContainerExtra {
     level: usize,
     close_pattern: Option<Regex>,
@@ -73,26 +75,6 @@ struct ContainerExtra {
     status: String,
     startpos: usize,
     slices: Vec<(usize, usize)>,
-}
-
-impl Default for ContainerExtra {
-    fn default() -> Self {
-        ContainerExtra {
-            level: 0,
-            close_pattern: None,
-            end_fence_startpos: 0,
-            end_fence_endpos: 0,
-            styles: Vec::new(),
-            indent: 0,
-            note_label: String::new(),
-            key: String::new(),
-            columns: 0,
-            colons: 0,
-            status: String::new(),
-            startpos: 0,
-            slices: Vec::new(),
-        }
-    }
 }
 
 struct Container<'a> {
@@ -235,7 +217,7 @@ impl<'a> EventParser<'a> {
         });
     }
 
-    fn tip(&self) -> Option<&Container> {
+    fn tip(&self) -> Option<&Container<'_>> {
         self.containers.last()
     }
 
@@ -388,7 +370,7 @@ impl<'a> EventParser<'a> {
 
     fn try_footnote(&mut self) -> bool {
         if let Some((sp, ep, caps)) = self.find(&PATT_FOOTNOTE_START) {
-            let label = caps.get(0).map(|s| s.as_str()).unwrap_or("");
+            let label = caps.first().map(|s| s.as_str()).unwrap_or("");
             self.add_container(Container {
                 name: "footnote".to_string(),
                 ctype: ContentType::Block,
@@ -417,7 +399,7 @@ impl<'a> EventParser<'a> {
 
     fn try_reference_definition(&mut self) -> bool {
         if let Some((sp, _ep, caps)) = self.find(&PATT_REFERENCE_DEF) {
-            let label = caps.get(0).map(|s| s.as_str()).unwrap_or("");
+            let label = caps.first().map(|s| s.as_str()).unwrap_or("");
             let value = caps.get(1).map(|s| s.trim_start()).unwrap_or("");
             self.add_container(Container {
                 name: "reference_definition".to_string(),
@@ -508,7 +490,7 @@ impl<'a> EventParser<'a> {
             });
             let mut annot = "+list".to_string();
             for style in &styles {
-                annot.push_str("|");
+                annot.push('|');
                 annot.push_str(style);
             }
             self.add_match(sp, ep - 1, &annot);
@@ -569,7 +551,7 @@ impl<'a> EventParser<'a> {
             });
             let mut annot = "+list_item".to_string();
             for style in &styles {
-                annot.push_str("|");
+                annot.push('|');
                 annot.push_str(style);
             }
             self.add_match(sp, ep - 1, &annot);
@@ -593,7 +575,7 @@ impl<'a> EventParser<'a> {
     }
 
     fn try_table(&mut self) -> bool {
-        if let Some((sp, ep, caps)) = self.find(&PATT_TABLE_ROW) {
+        if let Some((sp, _ep, caps)) = self.find(&PATT_TABLE_ROW) {
             let rawrow = &caps[0];
             self.add_container(Container {
                 name: "table".to_string(),
@@ -841,9 +823,10 @@ impl<'a> EventParser<'a> {
                 find::find_pos(self.subject, &PATT_NEXT_BAR_OR_TICKS, self.pos, Some(ep))
             {
                 let nextbar = mep;
-                if self.subject.as_bytes()[nextbar] == b'`' || inline_parser.verbatim > 0 {
-                    inline_parser.feed(self.pos, nextbar);
-                } else if nextbar > 0 && self.subject.as_bytes()[nextbar - 1] == b'\\' {
+                if self.subject.as_bytes()[nextbar] == b'`'
+                    || inline_parser.verbatim > 0
+                    || (nextbar > 0 && self.subject.as_bytes()[nextbar - 1] == b'\\')
+                {
                     inline_parser.feed(self.pos, nextbar);
                 } else {
                     inline_parser.feed(self.pos, nextbar - 1);
@@ -1097,10 +1080,8 @@ impl<'a> EventParser<'a> {
             }
         }
         // type: ListItem specs
-        if spec_type == ContentType::ListItem {
-            if self.try_list_item() {
-                return Some(());
-            }
+        if spec_type == ContentType::ListItem && self.try_list_item() {
+            return Some(());
         }
         None
     }
