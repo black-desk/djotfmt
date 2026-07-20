@@ -101,6 +101,10 @@ pub struct InlineParser<'a> {
     attribute_parser: Option<AttributeParser<'a>>,
     attribute_start: Option<usize>,
     pub attribute_slices: Option<Vec<(usize, usize)>>,
+    // speculative bracketed span awaiting attribute confirmation:
+    // (open_match_index, close_match_index). When the attribute parse
+    // that must follow `]{` fails, these matches revert to literal "str".
+    pending_span: Option<(usize, usize)>,
 }
 
 impl<'a> InlineParser<'a> {
@@ -118,6 +122,7 @@ impl<'a> InlineParser<'a> {
             attribute_parser: None,
             attribute_start: None,
             attribute_slices: None,
+            pending_span: None,
         }
     }
 
@@ -150,6 +155,16 @@ impl<'a> InlineParser<'a> {
             return;
         }
         let slices = slices.unwrap();
+        // A span is only a span when followed by a valid attribute;
+        // make the brackets literal again.
+        if let Some((open_idx, close_idx)) = self.pending_span.take() {
+            if open_idx < self.matches.len() {
+                self.matches[open_idx].annot = "str".to_string();
+            }
+            if close_idx < self.matches.len() {
+                self.matches[close_idx].annot = "str".to_string();
+            }
+        }
         self.allow_attributes = false;
         self.attribute_parser = None;
         self.attribute_start = None;
@@ -499,6 +514,11 @@ impl<'a> InlineParser<'a> {
             // bracketed span
             self.add_match_at(opener_match_index, opener_startpos, opener_endpos, "+span");
             self.add_match(pos, pos, "-span");
+            if self.allow_attributes {
+                // speculative: revert to literal brackets if the attribute
+                // parse that must follow fails
+                self.pending_span = Some((opener_match_index, self.matches.len() - 1));
+            }
             self.clear_openers(opener_startpos, pos);
             return Some(pos + 1);
         }
@@ -696,6 +716,7 @@ impl<'a> InlineParser<'a> {
                     self.attribute_parser = None;
                     self.attribute_start = None;
                     self.attribute_slices = None;
+                    self.pending_span = None;
                     pos = ep + 1;
                 } else if status == "fail" {
                     self.reparse_attributes();
