@@ -21,7 +21,6 @@ lazy_static::lazy_static! {
     static ref PATT_DOUBLE_DOLLARS: Regex = find::pattern(r"\$\$");
     static ref PATT_SINGLE_DOLLAR: Regex = find::pattern(r"\$");
     static ref PATT_RAW_ATTRIBUTE: Regex = find::pattern(r"\{=[^\s{}`]+\}");
-    static ref PATT_NOTE_REFERENCE: Regex = find::pattern(r"\^([^\]]+)\]");
     static ref PATT_BACKSLASH: Regex = find::pattern(r"\\");
     static ref PATT_PUNCTUATION: Regex = find::pattern(r"[!-/:-@\[-`{-~]");
     static ref PATT_DELIM: Regex = find::pattern(r#"[_*~^+='"-]"#);
@@ -438,6 +437,18 @@ impl<'a> InlineParser<'a> {
         let opener_sub_match_index = self.openers[ob_idx].1[last_idx].sub_match_index;
         let opener_substartpos = self.openers[ob_idx].1[last_idx].substartpos;
         let opener_subendpos = self.openers[ob_idx].1[last_idx].subendpos;
+
+        if cp(subject, opener_startpos + 1) == C_HAT {
+            let mut match_index = self.matches.len().saturating_sub(1);
+            while match_index > 0 && self.matches[match_index].startpos > opener_startpos {
+                self.matches.pop();
+                match_index -= 1;
+            }
+            self.clear_openers(opener_startpos, pos);
+            self.matches[match_index].annot = "footnote_reference".to_string();
+            self.matches[match_index].endpos = pos;
+            return Some(pos + 1);
+        }
 
         if annot.as_deref() == Some("reference_link") {
             // found a reference link
@@ -1022,15 +1033,8 @@ impl<'a> InlineParser<'a> {
                         }
                     }
                     C_LEFT_BRACKET => {
-                        if let Some((_m_start, m_end, _caps)) =
-                            find::find(subject, &PATT_NOTE_REFERENCE, pos + 1, Some(endpos))
-                        {
-                            self.add_match(pos, m_end, "footnote_reference");
-                            Some(m_end + 1)
-                        } else {
-                            self.add_opener("[", pos, pos, "str");
-                            Some(pos + 1)
-                        }
+                        self.add_opener("[", pos, pos, "str");
+                        Some(pos + 1)
                     }
                     C_RIGHT_BRACKET => self.handle_right_bracket(pos, endpos),
                     C_LEFT_PAREN => {
