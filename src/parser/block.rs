@@ -17,7 +17,7 @@ lazy_static::lazy_static! {
     static ref PATT_BANGS: Regex = find::pattern(r"#+");
     static ref PATT_WHITESPACE: Regex = find::pattern(r"[ \t\r\n]");
     static ref PATT_CAPTION_START: Regex = find::pattern(r"\^[ \t]+");
-    static ref PATT_FOOTNOTE_START: Regex = find::pattern(r"\[\^([^\]]+)\]:[ \t\r\n]");
+    static ref PATT_FOOTNOTE_START: Regex = find::pattern(r"\[\^([^\]\r\n]+)\]:[ \t\r\n]");
     static ref PATT_REFERENCE_DEF: Regex = find::pattern(r"\[([^\]\r\n]*)\]:([ \t]+[^ \t\r\n]*|)[\r\n]");
     static ref PATT_NON_WHITESPACE: Regex = find::pattern(r"[^ \t\r\n]+");
     static ref PATT_THEMATIC_BREAK: Regex = find::pattern(r"[-*][ \t]*[-*][ \t]*[-*][-* \t]*\r?\n");
