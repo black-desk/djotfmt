@@ -13,7 +13,9 @@ use regex::bytes::Regex;
 lazy_static::lazy_static! {
     static ref RE_SPECIAL: Regex = find::pattern(r#"[\r\n"'()*+.:<=\[\\\]^_`${}~-]"#);
     static ref PATT_LINE_END: Regex = find::pattern(r"[ \t]*\r?\n");
-    static ref PATT_AUTO_LINK: Regex = find::pattern(r"<([^<>\s]+)>");
+    static ref PATT_AUTO_LINK: Regex = find::pattern(r"[<][^<>\s]+[>]");
+    static ref PATT_EMAIL: Regex = find::pattern(r"[^:]+@");
+    static ref PATT_URL: Regex = find::pattern(r"[a-zA-Z0-9+.-]+:");
     static ref PATT_SYMBOL: Regex = find::pattern(r":[\w_+-]+:");
     static ref PATT_TWO_PERIODS: Regex = find::pattern(r"\.\.");
     static ref PATT_BACKTICKS0: Regex = find::pattern(r"`*");
@@ -893,34 +895,15 @@ impl<'a> InlineParser<'a> {
                         }
                     }
                     C_LESSTHAN => {
-                        if let Some((m_start, m_end, caps)) =
-                            find::find(subject, &PATT_AUTO_LINK, pos, Some(endpos))
+                        if let Some((m_start, m_end)) =
+                            find::find_pos(subject, &PATT_AUTO_LINK, pos, Some(endpos))
                         {
-                            let url = &caps[0];
-                            // JS checks: url.match(/[^:]@/) for email
-                            let is_email = {
-                                let bytes = url.as_bytes();
-                                let mut found = false;
-                                for i in 1..bytes.len() {
-                                    if bytes[i] == b'@' && bytes[i - 1] != b':' {
-                                        found = true;
-                                        break;
-                                    }
-                                }
-                                found
-                            };
-                            // JS checks: url.match(/[a-zA-Z]:/) for url
-                            let is_url = {
-                                let bytes = url.as_bytes();
-                                let mut found = false;
-                                for i in 1..bytes.len() {
-                                    if bytes[i] == b':' && bytes[i - 1].is_ascii_alphabetic() {
-                                        found = true;
-                                        break;
-                                    }
-                                }
-                                found
-                            };
+                            let is_email =
+                                find::find_pos(subject, &PATT_EMAIL, m_start + 1, Some(m_end))
+                                    .is_some();
+                            let is_url =
+                                find::find_pos(subject, &PATT_URL, m_start + 1, Some(m_end))
+                                    .is_some();
                             if is_email {
                                 self.add_match(m_start, m_start, "+email");
                                 self.add_match(m_start + 1, m_end - 1, "str");
