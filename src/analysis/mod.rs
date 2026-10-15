@@ -39,6 +39,13 @@ pub struct Reference {
     pub target: Option<usize>,
 }
 
+/// A source link with its decoded destination, before resolving a document URI.
+#[derive(Debug, Clone)]
+pub struct Link {
+    pub range: Range<usize>,
+    pub destination: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct Heading {
     pub level: usize,
@@ -76,6 +83,7 @@ pub struct Document {
     pub lines: LineIndex,
     pub definitions: Vec<Definition>,
     pub references: Vec<Reference>,
+    pub links: Vec<Link>,
     pub headings: Vec<Heading>,
     pub diagnostics: Vec<Diagnostic>,
     reverse: HashMap<usize, Vec<usize>>,
@@ -181,6 +189,7 @@ impl Document {
             lines,
             definitions: vec![],
             references: vec![],
+            links: vec![],
             headings: vec![],
             diagnostics: vec![],
             reverse: HashMap::new(),
@@ -335,6 +344,16 @@ impl Document {
                             .map(|e| &self.source[source_range(&self.source, e.startpos, e.endpos)])
                             .collect::<String>();
                         if !key.is_empty() {
+                            let values: Vec<_> = inner
+                                .iter()
+                                .filter(|e| e.annot == "reference_value")
+                                .collect();
+                            if let (Some(first), Some(last)) = (values.first(), values.last()) {
+                                self.links.push(Link {
+                                    range: source_range(&self.source, first.startpos, last.endpos),
+                                    destination: destination.clone(),
+                                });
+                            }
                             self.definitions.push(Definition {
                                 kind: SymbolKind::Link,
                                 key,
@@ -401,14 +420,21 @@ impl Document {
                 "reference" | "destination" => {
                     let text = plain_text(&self.source, inner);
                     let is_reference = span.tag == "reference";
-                    if !is_reference && !text.starts_with('#') {
-                        continue;
-                    }
                     let link = links.get(&span.open);
                     let Some(link) = link else {
                         continue;
                     };
                     let full_range = self.event_range(link.open).start..range.end;
+                    if !is_reference {
+                        let destination = text.replace(['\r', '\n'], "");
+                        self.links.push(Link {
+                            range: full_range.clone(),
+                            destination: destination.clone(),
+                        });
+                        if !destination.starts_with('#') {
+                            continue;
+                        }
+                    }
                     let name_start = self.event_range(span.open).end;
                     let name_end = self.event_range(span.close).start;
                     let mut name_range = name_start.min(name_end)..name_end;
@@ -507,6 +533,19 @@ impl Document {
                 });
             }
         }
+        // Resolve reference-style links using exactly the same precedence as
+        // definition navigation; unresolved references are not clickable.
+        for reference in &self.references {
+            if reference.kind == SymbolKind::Link {
+                if let Some(target) = reference.target {
+                    self.links.push(Link {
+                        range: reference.full_range.clone(),
+                        destination: self.definitions[target].destination.clone(),
+                    });
+                }
+            }
+        }
+        self.links.sort_by_key(|link| link.range.start);
     }
 
     pub fn target_at(&self, offset: usize) -> Option<usize> {

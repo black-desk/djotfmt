@@ -85,6 +85,18 @@ fn offset(doc: &Document, pos: Position) -> Result<usize> {
         .ok_or_else(|| Error::invalid_params("Invalid UTF-16 position"))
 }
 
+/// URI resolution deliberately does not consult the filesystem. It works for
+/// unopened files and preserves query/fragment components for the client.
+fn link_target(base: &Uri, destination: &str) -> Option<Uri> {
+    if destination.is_empty() || destination.starts_with('#') {
+        return None;
+    }
+    let target = url::Url::parse(destination)
+        .or_else(|_| url::Url::parse(base.as_str())?.join(destination))
+        .ok()?;
+    target.as_str().parse().ok()
+}
+
 fn snippet_escape(text: &str) -> String {
     text.replace('\\', "\\\\")
         .replace('$', "\\$")
@@ -115,6 +127,10 @@ impl LanguageServer for Backend {
                 )),
                 document_formatting_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
+                document_link_provider: Some(DocumentLinkOptions {
+                    resolve_provider: Some(false),
+                    work_done_progress_options: Default::default(),
+                }),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 completion_provider: Some(CompletionOptions {
@@ -214,6 +230,26 @@ impl LanguageServer for Backend {
             p.text_document.uri,
             range(doc, doc.definitions[target].name_range.clone()),
         ))))
+    }
+
+    async fn document_link(&self, params: DocumentLinkParams) -> Result<Option<Vec<DocumentLink>>> {
+        let uri = params.text_document.uri;
+        let snapshot = self.snapshot(&uri)?;
+        let links = snapshot
+            .doc
+            .links
+            .iter()
+            .filter_map(|link| {
+                let target = link_target(&uri, &link.destination)?;
+                Some(DocumentLink {
+                    range: range(&snapshot.doc, link.range.clone()),
+                    target: Some(target),
+                    tooltip: None,
+                    data: None,
+                })
+            })
+            .collect();
+        Ok(Some(links))
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {

@@ -195,6 +195,7 @@ fn analysis_accepts_existing_formatter_corpus() {
                     .iter()
                     .flat_map(|r| [&r.name_range, &r.full_range]),
             )
+            .chain(doc.links.iter().map(|l| &l.range))
             .chain(doc.headings.iter().flat_map(|h| [&h.range, &h.selection]))
         {
             assert!(
@@ -204,4 +205,25 @@ fn analysis_accepts_existing_formatter_corpus() {
             );
         }
     }
+}
+
+#[test]
+fn document_link_ranges_follow_parser_and_definition_precedence() {
+    let source = "[x](a.dj) [r][guide] ![img](p.png) ` [code](bad.dj) `\n\n[guide]: first.dj\n[guide]: last.dj\n";
+    let doc = Document::new(source.into());
+    let links: Vec<_> = doc
+        .links
+        .iter()
+        .map(|l| (&source[l.range.clone()], l.destination.as_str()))
+        .collect();
+    assert_eq!(
+        links,
+        [
+            ("[x](a.dj)", "a.dj"),
+            ("[r][guide]", "last.dj"),
+            ("[img](p.png)", "p.png"),
+            ("first.dj", "first.dj"),
+            ("last.dj", "last.dj")
+        ]
+    );
 }
