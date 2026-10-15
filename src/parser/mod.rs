@@ -17,12 +17,17 @@ pub struct Event {
 
 /// Parse a Djot document into an event stream compatible with djot.js.
 ///
-/// Internally uses byte offsets for O(1) character access.
-pub fn parse_events(input: &str) -> Vec<Event> {
+/// Events are produced lazily and consumed once. Collect the iterator when
+/// repeated access is needed. Paragraph-level inline parsing still buffers a
+/// paragraph before emitting its inline events.
+///
+/// Positions are inclusive UTF-8 byte offsets. A missing final newline is
+/// appended internally, so an event may refer to that virtual newline.
+pub fn parse_events(input: &str) -> impl std::iter::FusedIterator<Item = Event> + Send + use<> {
     let text = if input.ends_with('\n') {
         input.to_string()
     } else {
         format!("{}\n", input)
     };
-    block::parse(&text)
+    block::EventParser::new(text.into())
 }
