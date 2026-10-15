@@ -585,7 +585,14 @@ impl Document {
         if spans.iter().any(|s| {
             matches!(
                 s.tag.as_str(),
-                "code_block" | "verbatim" | "inline_math" | "display_math" | "url" | "email"
+                "code_block"
+                    | "verbatim"
+                    | "inline_math"
+                    | "display_math"
+                    | "url"
+                    | "email"
+                    | "attributes"
+                    | "block_attributes"
             ) && {
                 let range = self.span_range(s);
                 range.start < offset
@@ -614,7 +621,14 @@ impl Document {
         if spans.iter().any(|s| {
             matches!(
                 s.tag.as_str(),
-                "code_block" | "verbatim" | "inline_math" | "display_math" | "url" | "email"
+                "code_block"
+                    | "verbatim"
+                    | "inline_math"
+                    | "display_math"
+                    | "url"
+                    | "email"
+                    | "attributes"
+                    | "block_attributes"
             ) && self.span_range(s).contains(&absolute)
         }) {
             return None;
