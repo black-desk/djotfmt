@@ -89,8 +89,8 @@ fn has_brace(subject: &str, pos: usize) -> bool {
     (pos > 0 && cp(subject, pos - 1) == C_LEFT_BRACE) || cp(subject, pos + 1) == C_RIGHT_BRACE
 }
 
-pub struct InlineParser<'a> {
-    subject: &'a str,
+pub struct InlineParser {
+    subject: std::sync::Arc<str>,
     matches: Vec<Event>,
     openers: OpenerMap,
     pub verbatim: usize,
@@ -99,7 +99,7 @@ pub struct InlineParser<'a> {
     pub firstpos: isize,
     pub lastpos: usize,
     allow_attributes: bool,
-    attribute_parser: Option<AttributeParser<'a>>,
+    attribute_parser: Option<AttributeParser>,
     attribute_start: Option<usize>,
     pub attribute_slices: Option<Vec<(usize, usize)>>,
     // speculative bracketed span awaiting attribute confirmation:
@@ -108,8 +108,8 @@ pub struct InlineParser<'a> {
     pending_span: Option<(usize, usize)>,
 }
 
-impl<'a> InlineParser<'a> {
-    pub fn new(subject: &'a str) -> Self {
+impl InlineParser {
+    pub fn new(subject: std::sync::Arc<str>) -> Self {
         InlineParser {
             subject,
             matches: Vec::new(),
@@ -176,7 +176,8 @@ impl<'a> InlineParser<'a> {
     }
 
     pub fn get_matches(mut self) -> Vec<Event> {
-        let subject = self.subject;
+        let source = self.subject.clone();
+        let subject = source.as_ref();
         if self.attribute_parser.is_some() {
             self.reparse_attributes();
         }
@@ -301,7 +302,8 @@ impl<'a> InlineParser<'a> {
         pos: usize,
         endpos: usize,
     ) -> usize {
-        let subject = self.subject;
+        let source = self.subject.clone();
+        let subject = source.as_ref();
         let co_find = find::find_pos(subject, &PATT_NONSPACE, pos + 1, None);
         // NOTE: JS calls find(subject, pattNonspace, pos - 1) unconditionally,
         // relying on the regex engine to return null for pos == -1. We guard
@@ -426,7 +428,8 @@ impl<'a> InlineParser<'a> {
     }
 
     fn handle_right_bracket(&mut self, pos: usize, endpos: usize) -> Option<usize> {
-        let subject = self.subject;
+        let source = self.subject.clone();
+        let subject = source.as_ref();
 
         // Find the [ openers
         let ob_idx = self.openers.iter().position(|(k, _)| *k == "[")?;
@@ -577,7 +580,8 @@ impl<'a> InlineParser<'a> {
                     // convert matches inside destination to str
                     self.str_matches(opener_subendpos + 1, pos - 1);
 
-                    let subject = self.subject;
+                    let source = self.subject.clone();
+                    let subject = source.as_ref();
                     let is_image = opener_startpos > 0
                         && cp(subject, opener_startpos - 1) == C_BANG
                         && (opener_startpos < 2 || cp(subject, opener_startpos - 2) != C_BACKSLASH);
@@ -639,7 +643,8 @@ impl<'a> InlineParser<'a> {
     }
 
     fn handle_hyphen(&mut self, pos: usize, endpos: usize) -> Option<usize> {
-        let subject = self.subject;
+        let source = self.subject.clone();
+        let subject = source.as_ref();
         // check for delete with braces
         // Note: JS checks codePointAt(pos+1) without endpos guard (lookahead)
         let has_open_brace = pos > 0 && cp(subject, pos - 1) == C_LEFT_BRACE;
@@ -702,7 +707,8 @@ impl<'a> InlineParser<'a> {
     }
 
     pub fn feed(&mut self, startpos: usize, endpos: usize) {
-        let subject = self.subject;
+        let source = self.subject.clone();
+        let subject = source.as_ref();
 
         if self.firstpos == -1 || (startpos as isize) < self.firstpos {
             self.firstpos = startpos as isize;
@@ -989,7 +995,8 @@ impl<'a> InlineParser<'a> {
                             self.add_match(pos, pos, "open_marker");
                             Some(pos + 1)
                         } else if self.allow_attributes {
-                            self.attribute_parser = Some(AttributeParser::new(subject));
+                            self.attribute_parser =
+                                Some(AttributeParser::new(self.subject.clone()));
                             self.attribute_start = Some(pos);
                             self.attribute_slices = None;
                             Some(pos)

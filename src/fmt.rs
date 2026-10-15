@@ -25,7 +25,7 @@ pub fn format(input: &str, config: &FmtConfig) -> String {
     let events = parser::parse_events(input);
     let mut writer = FmtWriter::new(input, config);
     let mut out = String::new();
-    writer.run(&events, &mut out).unwrap();
+    writer.run(events, &mut out).unwrap();
     out
 }
 
@@ -563,15 +563,18 @@ impl<'a> FmtWriter<'a> {
     }
     // -----------------------------------------------------------------------
 
-    fn run<W: std::fmt::Write>(&mut self, events: &[Event], out: &mut W) -> std::fmt::Result {
+    fn run<W: std::fmt::Write>(
+        &mut self,
+        events: impl IntoIterator<Item = Event>,
+        out: &mut W,
+    ) -> std::fmt::Result {
         log::trace!("Start fmt render events");
 
         // List item counter per list nesting level
         let mut list_counter: Vec<u64> = Vec::new();
 
-        let mut i = 0;
-        while i < events.len() {
-            let event = &events[i];
+        for event in events {
+            let event = &event;
             let annot = &event.annot;
             log::debug!("Event: {} {:?}", annot, self.src(event));
 
@@ -1336,8 +1339,6 @@ impl<'a> FmtWriter<'a> {
                     }
                 }
             }
-
-            i += 1;
         }
 
         // Final flush: ensure all pending content is written

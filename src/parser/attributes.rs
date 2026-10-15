@@ -28,16 +28,16 @@ fn is_key_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == ':' || c == '-'
 }
 
-pub struct AttributeParser<'a> {
-    subject: &'a str,
+pub struct AttributeParser {
+    subject: std::sync::Arc<str>,
     state: State,
     begin: Option<usize>,
     lastpos: Option<usize>,
     matches: Vec<Event>,
 }
 
-impl<'a> AttributeParser<'a> {
-    pub fn new(subject: &'a str) -> Self {
+impl AttributeParser {
+    pub fn new(subject: std::sync::Arc<str>) -> Self {
         AttributeParser {
             subject,
             state: State::Start,
