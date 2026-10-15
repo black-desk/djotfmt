@@ -16,9 +16,13 @@ struct Server {
     input: ChildStdin,
     output: Receiver<Value>,
     next_id: u64,
+    notifications: Vec<Value>,
 }
 impl Server {
     fn new(snippets: bool) -> Self {
+        Self::with_capabilities(snippets, true)
+    }
+    fn with_capabilities(snippets: bool, nested: bool) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_djot-lsp"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -56,8 +60,9 @@ impl Server {
             input,
             output,
             next_id: 0,
+            notifications: vec![],
         };
-        let result = server.request("initialize", json!({"processId":null,"rootUri":null,"capabilities":{"textDocument":{"completion":{"completionItem":{"snippetSupport":snippets}},"documentSymbol":{"hierarchicalDocumentSymbolSupport":true}}}}));
+        let result = server.request("initialize", json!({"processId":null,"rootUri":null,"capabilities":{"textDocument":{"completion":{"completionItem":{"snippetSupport":snippets}},"documentSymbol":{"hierarchicalDocumentSymbolSupport":nested}}}}));
         assert_eq!(result["capabilities"]["positionEncoding"], "utf-16");
         assert_eq!(result["capabilities"]["textDocumentSync"], 2);
         assert_eq!(
@@ -77,6 +82,11 @@ impl Server {
         self.send(json!({"jsonrpc":"2.0","method":method,"params":params}));
     }
     fn request(&mut self, method: &str, params: Value) -> Value {
+        let msg = self.response(method, params);
+        assert!(msg.get("error").is_none(), "{msg}");
+        msg["result"].clone()
+    }
+    fn response(&mut self, method: &str, params: Value) -> Value {
         self.next_id += 1;
         let id = self.next_id;
         self.send(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}));
@@ -86,10 +96,40 @@ impl Server {
                 .recv_timeout(Duration::from_secs(10))
                 .expect("LSP response timed out");
             if msg["id"] == id {
-                assert!(msg.get("error").is_none(), "{msg}");
-                return msg["result"].clone();
+                return msg;
             }
+            self.notifications.push(msg);
         }
+    }
+    fn diagnostics(&mut self) -> Value {
+        loop {
+            if let Some(i) = self
+                .notifications
+                .iter()
+                .position(|msg| msg["method"] == "textDocument/publishDiagnostics")
+            {
+                return self.notifications.remove(i)["params"].clone();
+            }
+            let msg = self
+                .output
+                .recv_timeout(Duration::from_secs(10))
+                .expect("Diagnostics timed out");
+            self.notifications.push(msg);
+        }
+    }
+    fn document(&mut self, method: &str) -> Value {
+        self.request(method, json!({"textDocument":{"uri":"file:///test.dj"}}))
+    }
+    fn query(&mut self, method: &str, source: &str, offset: usize) -> Value {
+        let pos = source_position(source, offset);
+        self.at(
+            method,
+            pos["line"].as_u64().unwrap() as u32,
+            pos["character"].as_u64().unwrap() as u32,
+        )
+    }
+    fn refs(&mut self, source: &str, offset: usize, declaration: bool) -> Value {
+        self.request("textDocument/references", json!({"textDocument":{"uri":"file:///test.dj"},"position":source_position(source, offset),"context":{"includeDeclaration":declaration}}))
     }
     fn open(&mut self, text: &str) {
         self.notify("textDocument/didOpen", json!({"textDocument":{"uri":"file:///test.dj","languageId":"djot","version":1,"text":text}}));
@@ -183,27 +223,21 @@ fn completion_snippets_and_plain_text_fallback() {
 fn diagnostics_are_versioned_and_cleared_on_close() {
     let mut server = Server::new(true);
     server.open("[x][missing]");
-    loop {
-        let msg = server.output.recv_timeout(Duration::from_secs(10)).unwrap();
-        if msg["method"] == "textDocument/publishDiagnostics" {
-            assert_eq!(msg["params"]["version"], 1);
-            assert_eq!(
-                msg["params"]["diagnostics"][0]["range"]["start"]["character"],
-                4
-            );
-            assert!(msg["params"]["diagnostics"][0]["message"]
-                .as_str()
-                .unwrap()
-                .contains("missing"));
-            break;
-        }
-    }
+    let params = server.diagnostics();
+    assert_eq!(params["version"], 1);
+    assert_eq!(
+        params["diagnostics"][0]["range"],
+        json!({"start":{"line":0,"character":4},"end":{"line":0,"character":11}})
+    );
+    assert_eq!(
+        params["diagnostics"][0]["message"],
+        "Unresolved reference: missing"
+    );
     server.notify(
         "textDocument/didClose",
         json!({"textDocument":{"uri":"file:///test.dj"}}),
     );
-    let msg = server.output.recv_timeout(Duration::from_secs(10)).unwrap();
-    assert_eq!(msg["params"]["diagnostics"], json!([]));
+    assert_eq!(server.diagnostics()["diagnostics"], json!([]));
     server.shutdown();
 }
 
@@ -303,5 +337,413 @@ fn document_links_handle_spaces_file_uris_and_non_file_documents() {
     );
     assert_eq!(result.as_array().unwrap().len(), 1);
     assert_eq!(result[0]["target"], "https://example.com/");
+    server.shutdown();
+}
+
+// These helpers deliberately use only source text and JSON, never the analysis
+// model or its coordinate conversion. Expected positions are independent of it.
+fn source_position(source: &str, offset: usize) -> Value {
+    let prefix = &source[..offset];
+    let line = prefix.bytes().filter(|&b| b == b'\n').count();
+    let tail = prefix.rsplit('\n').next().unwrap();
+    json!({"line":line,"character":tail.encode_utf16().count()})
+}
+
+fn source_offset(source: &str, pos: &Value) -> usize {
+    let line = pos["line"].as_u64().expect("line") as usize;
+    let column = pos["character"].as_u64().expect("character") as usize;
+    let lines: Vec<_> = source.split('\n').collect();
+    let text = lines
+        .get(line)
+        .expect("line outside source")
+        .trim_end_matches('\r');
+    let mut units = 0;
+    let mut bytes = 0;
+    for ch in text.chars() {
+        if units == column {
+            break;
+        }
+        units += ch.len_utf16();
+        bytes += ch.len_utf8();
+    }
+    assert_eq!(units, column, "invalid UTF-16 position: {pos}");
+    lines[..line].iter().map(|l| l.len() + 1).sum::<usize>() + bytes
+}
+
+fn range_text<'a>(source: &'a str, range: &Value) -> &'a str {
+    let start = source_offset(source, &range["start"]);
+    let end = source_offset(source, &range["end"]);
+    assert!(start <= end, "reversed range: {range}");
+    &source[start..end]
+}
+
+fn apply_edit(source: &str, edit: &Value) -> String {
+    let mut result = source.to_owned();
+    let start = source_offset(source, &edit["range"]["start"]);
+    let end = source_offset(source, &edit["range"]["end"]);
+    result.replace_range(start..end, edit["newText"].as_str().unwrap());
+    result
+}
+
+#[test]
+fn stdio_definition_and_reverse_references_cover_all_label_kinds() {
+    let mut server = Server::new(true);
+    let source =
+        "# Intro\n\n[x][guide] [Intro][] [x](#Intro) [^a]\n\n[guide]: manual.dj\n[^a]: note";
+    server.open(source);
+    assert_eq!(server.diagnostics()["diagnostics"], json!([]));
+    for (needle, label, definition) in [
+        ("[guide]", "guide", source.find("[guide]:").unwrap() + 1),
+        ("[Intro][]", "Intro", 2),
+        ("#Intro)", "Intro", 2),
+        ("[^a]", "a", source.find("[^a]:").unwrap() + 2),
+    ] {
+        let at = source.find(needle).unwrap() + if needle.starts_with("[^") { 2 } else { 1 };
+        let result = server.query("textDocument/definition", source, at);
+        assert_eq!(result["uri"], "file:///test.dj");
+        assert_eq!(
+            result["range"]["start"],
+            source_position(source, definition)
+        );
+        assert_eq!(range_text(source, &result["range"]), label);
+    }
+    let refs = server.refs(source, source.find("[guide]:").unwrap() + 1, true);
+    assert_eq!(refs.as_array().unwrap().len(), 2);
+    for loc in refs.as_array().unwrap() {
+        assert_eq!(range_text(source, &loc["range"]), "guide");
+    }
+    let refs = server.refs(source, 2, false);
+    assert_eq!(refs.as_array().unwrap().len(), 2);
+    for loc in refs.as_array().unwrap() {
+        assert_eq!(range_text(source, &loc["range"]), "Intro");
+    }
+    server.shutdown();
+}
+
+#[test]
+fn stdio_duplicate_definitions_override_heading_and_report_precise_warning() {
+    let mut server = Server::new(true);
+    let source = "# Same\n\n[Same][]\n\n[Same]: first\n[Same]: last\n";
+    server.open(source);
+    let diagnostics = server.diagnostics();
+    assert_eq!(diagnostics["diagnostics"].as_array().unwrap().len(), 1);
+    let warning = &diagnostics["diagnostics"][0];
+    assert_eq!(warning["severity"], 2);
+    assert_eq!(warning["message"], "Duplicate definition: Same");
+    assert_eq!(range_text(source, &warning["range"]), "Same");
+    assert_eq!(
+        warning["range"]["start"],
+        source_position(source, source.rfind("[Same]").unwrap() + 1)
+    );
+    let target = server.query(
+        "textDocument/definition",
+        source,
+        source.find("[Same][]").unwrap() + 1,
+    );
+    assert_eq!(target["range"], warning["range"]);
+    let links = server.document("textDocument/documentLink");
+    assert_eq!(links.as_array().unwrap().len(), 3);
+    assert_eq!(links[0]["target"], "file:///last");
+    assert_eq!(links[1]["target"], "file:///first");
+    assert_eq!(links[2]["target"], "file:///last");
+    server.shutdown();
+}
+
+#[test]
+fn stdio_heading_ids_hierarchy_and_flat_outline() {
+    for nested in [true, false] {
+        let mut server = Server::with_capabilities(true, nested);
+        let source = "{#custom}\n# Title\n\n## Child\n\n# Title\n\n# Title\n\n[x](#custom) [x](#Child) [x](#Title) [x](#Title-1)\n";
+        server.open(source);
+        assert_eq!(server.diagnostics()["diagnostics"], json!([]));
+        let symbols = server.document("textDocument/documentSymbol");
+        if nested {
+            assert_eq!(symbols.as_array().unwrap().len(), 3);
+            assert_eq!(symbols[0]["children"][0]["name"], "Child");
+            assert_eq!(symbols[1]["name"], "Title");
+            assert!(symbols[1].get("children").is_none());
+        } else {
+            assert_eq!(symbols.as_array().unwrap().len(), 4);
+            assert_eq!(symbols[1]["name"], "Child");
+            assert_eq!(symbols[1]["containerName"], "Title");
+            assert!(symbols[2].get("containerName").is_none());
+        }
+        for (id, line) in [("custom", 0), ("Child", 3), ("Title", 5), ("Title-1", 7)] {
+            let at = source.find(&format!("(#{id})")).unwrap() + 2;
+            let target = server.query("textDocument/definition", source, at);
+            assert_eq!(target["range"]["start"]["line"], line, "{id}");
+            assert_eq!(
+                range_text(source, &target["range"]),
+                if id == "custom" {
+                    "custom"
+                } else if id == "Child" {
+                    "Child"
+                } else {
+                    "Title"
+                }
+            );
+        }
+        server.shutdown();
+    }
+}
+
+#[test]
+fn stdio_heading_labels_exclude_destinations_and_footnotes() {
+    let mut server = Server::new(true);
+    let source = "# A [link](https://example.com)[^n] :symbol:\n\n[A link][]\n\n[^n]: note\n";
+    server.open(source);
+    assert_eq!(server.diagnostics()["diagnostics"], json!([]));
+    let symbols = server.document("textDocument/documentSymbol");
+    assert_eq!(symbols[0]["name"], "A link");
+    let target = server.query(
+        "textDocument/definition",
+        source,
+        source.find("[A link][]").unwrap() + 1,
+    );
+    assert_eq!(target["range"], symbols[0]["selectionRange"]);
+    server.shutdown();
+}
+
+#[test]
+fn stdio_attribute_ownership_controls_anchor_navigation() {
+    let mut server = Server::new(true);
+    for source in ["{#bad} text\n", "word {#bad}\n", "{#bad}\n\ntext\n"] {
+        let source = format!("{source}\n[x](#bad)\n");
+        server.open(&source);
+        let diagnostics = server.diagnostics();
+        assert_eq!(
+            diagnostics["diagnostics"][0]["message"],
+            "Unresolved reference: bad"
+        );
+        let result = server.query(
+            "textDocument/definition",
+            &source,
+            source.rfind("bad").unwrap(),
+        );
+        assert!(result.is_null(), "{source}: {result}");
+    }
+    let source = "word{#good}\n\n[x](#good)\n";
+    server.open(source);
+    assert_eq!(server.diagnostics()["diagnostics"], json!([]));
+    let target = server.query(
+        "textDocument/definition",
+        source,
+        source.rfind("good").unwrap(),
+    );
+    assert_eq!(range_text(source, &target["range"]), "good");
+    assert_eq!(
+        target["range"]["start"],
+        source_position(source, source.find("good").unwrap())
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_completion_context_and_applied_replacement_edits() {
+    let mut server = Server::new(false);
+    for (prefix, input, label, expected) in [
+        ("[guide]: url\n\n", "[text][gu", "guide", "[text][guide]"),
+        ("[^note]: text\n\n", "[^no", "note", "[^note]"),
+        ("# Intro\n\n", "[text](#In", "Intro", "[text](#Intro)"),
+        ("", "[", "Inline link", "[text](destination)"),
+        ("[guide]: url\n\n", "[text][)", "guide", "[text][guide]"),
+        ("[guide]: url\n\n", "[text][]()", "guide", "[text][guide]"),
+        (
+            "[guide]: url\n\n",
+            "[text][guide]",
+            "guide",
+            "[text][guide]",
+        ),
+    ] {
+        let source = format!("{prefix}{input}");
+        server.open(&source);
+        let at = if let Some(i) = input.find("][") {
+            prefix.len()
+                + i
+                + 2
+                + if input == "[text][guide]" || input.ends_with("gu") {
+                    2
+                } else {
+                    0
+                }
+        } else {
+            source.len()
+        };
+        let result = server.query("textDocument/completion", &source, at);
+        let item = result
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["label"] == label)
+            .unwrap();
+        if input == "[text][guide]" {
+            assert_eq!(range_text(&source, &item["textEdit"]["range"]), "guide]");
+        }
+        assert_eq!(
+            apply_edit(&source, &item["textEdit"]),
+            format!("{prefix}{expected}")
+        );
+    }
+    for source in [
+        "\\[",
+        "`[text][gu`",
+        "```\n[text][gu",
+        "$`[text][gu`",
+        "word{key=\"[text][gu\"}",
+    ] {
+        server.open(source);
+        let at = source.find("gu").map_or(source.len(), |i| i + 2);
+        assert!(
+            server
+                .query("textDocument/completion", source, at)
+                .is_null(),
+            "{source}"
+        );
+    }
+    server.shutdown();
+}
+
+#[test]
+fn stdio_unicode_crlf_positions_and_invalid_changes() {
+    let mut server = Server::new(true);
+    let source = "中😀x\r\n[中][标签]\r\n\r\n[标签]: 地址";
+    server.open(source);
+    let expected = json!({"uri":"file:///test.dj","range":{"start":{"line":3,"character":1},"end":{"line":3,"character":3}}});
+    assert_eq!(server.at("textDocument/definition", 1, 5), expected);
+    // UTF-16 character 2 bisects the emoji. Other coordinates exceed line/EOF.
+    for (line, character) in [(0, 2), (0, 5), (4, 0)] {
+        let response = server.response("textDocument/definition", json!({"textDocument":{"uri":"file:///test.dj"},"position":{"line":line,"character":character}}));
+        assert_eq!(response["error"]["code"], -32602);
+        server.notify("textDocument/didChange", json!({"textDocument":{"uri":"file:///test.dj","version":2},"contentChanges":[{"range":{"start":{"line":line,"character":character},"end":{"line":line,"character":character}},"text":"broken"}]}));
+        assert_eq!(server.at("textDocument/definition", 1, 5), expected);
+    }
+    // A valid edit after all rejected updates still applies at the same version.
+    server.notify("textDocument/didChange", json!({"textDocument":{"uri":"file:///test.dj","version":2},"contentChanges":[{"range":{"start":{"line":0,"character":3},"end":{"line":0,"character":4}},"text":"[x][标签]"}]}));
+    assert_eq!(server.at("textDocument/definition", 0, 8), expected);
+    let refs = server.refs("中😀[x][标签]\r\n[中][标签]\r\n\r\n[标签]: 地址", 11, false);
+    assert_eq!(refs.as_array().unwrap().len(), 2);
+    server.shutdown();
+}
+
+#[test]
+fn stdio_document_link_ranges_and_duplicate_reference_precedence() {
+    let mut server = Server::new(true);
+    let source = "[x](a.dj) [r][guide] ![img](p.png) ` [code](bad.dj) `\n\n[guide]: first.dj\n[guide]: last.dj\n";
+    server.open(source);
+    let links = server.document("textDocument/documentLink");
+    let actual: Vec<_> = links
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|link| {
+            (
+                range_text(source, &link["range"]),
+                link["target"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        actual,
+        [
+            ("[x](a.dj)", "file:///a.dj"),
+            ("[r][guide]", "file:///last.dj"),
+            ("[img](p.png)", "file:///p.png"),
+            ("first.dj", "file:///first.dj"),
+            ("last.dj", "file:///last.dj")
+        ]
+    );
+    server.shutdown();
+}
+
+// Recursively validate every protocol range, including nested symbols, rather
+// than relying on analysis internals to enumerate the objects being tested.
+fn validate_ranges(source: &str, value: &Value) {
+    match value {
+        Value::Object(object) => {
+            if object.contains_key("start") && object.contains_key("end") {
+                range_text(source, value);
+            } else {
+                for child in object.values() {
+                    validate_ranges(source, child);
+                }
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                validate_ranges(source, child);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn stdio_corpus_and_missing_final_newline_have_valid_source_ranges() {
+    let mut server = Server::new(true);
+    let mut sources: Vec<(String, String)> = [
+        "",
+        "中😀",
+        "# 中😀",
+        "[^中]: 脚注\n\n[^中]",
+        "[中][标签]\n\n[标签]: 地址",
+    ]
+    .into_iter()
+    .map(|s| (format!("{s:?}"), s.into()))
+    .collect();
+    for path in glob::glob("tests/*.in")
+        .unwrap()
+        .chain(glob::glob("tests/*.out").unwrap())
+    {
+        let path = path.unwrap();
+        sources.push((
+            path.display().to_string(),
+            std::fs::read_to_string(path).unwrap(),
+        ));
+    }
+    for (name, source) in sources {
+        server.open(&source);
+        let diagnostics = server.diagnostics();
+        validate_ranges(&source, &diagnostics);
+        for method in ["textDocument/documentSymbol", "textDocument/documentLink"] {
+            let result = server.document(method);
+            validate_ranges(&source, &result);
+        }
+        // Probe all source character boundaries. This reaches definition names,
+        // uses, attached IDs and heading labels without a second parser oracle.
+        for offset in source
+            .char_indices()
+            .map(|(i, _)| i)
+            .chain(std::iter::once(source.len()))
+        {
+            if source[..offset].ends_with('\r') {
+                continue;
+            }
+            let result = server.query("textDocument/definition", &source, offset);
+            validate_ranges(&source, &result);
+            if !result.is_null() {
+                validate_ranges(&source, &server.refs(&source, offset, true));
+            }
+        }
+        assert_eq!(diagnostics["version"], 1, "{name}");
+    }
+    server.shutdown();
+}
+
+#[test]
+fn stdio_formatting_applies_expected_text_and_reports_noop() {
+    let mut server = Server::new(true);
+    let source = include_str!("heading-same-line.in");
+    let expected = include_str!("heading-same-line.out");
+    server.open(source);
+    let options = json!({"textDocument":{"uri":"file:///test.dj"},"options":{"tabSize":4,"insertSpaces":true}});
+    let edits = server.request("textDocument/formatting", options.clone());
+    assert_eq!(edits.as_array().unwrap().len(), 1);
+    assert_eq!(range_text(source, &edits[0]["range"]), source);
+    assert_eq!(apply_edit(source, &edits[0]), expected);
+    server.notify("textDocument/didChange", json!({"textDocument":{"uri":"file:///test.dj","version":2},"contentChanges":[{"text":expected}]}));
+    assert_eq!(
+        server.request("textDocument/formatting", options),
+        json!([])
+    );
     server.shutdown();
 }
