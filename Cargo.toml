@@ -4,11 +4,14 @@
 
 [package]
 name = "djotfmt"
+default-run = "djotfmt"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 
 [dependencies]
+tower-lsp-server = "=0.23.0"
+tokio = { version = "1", features = ["io-std", "io-util", "macros", "rt-multi-thread", "sync"] }
 clap = { version = "4.6.1", features = ["derive"] }
 colog = "1.4.0"
 env_logger = "0.11.10"
@@ -19,6 +22,7 @@ roman = "0.2.0"
 unicode-width = "0.2.2"
 
 [dev-dependencies]
+serde_json = "1"
 glob = "0.3"
 libtest-mimic = "0.8"
 pretty_assertions = "1.4.1"
