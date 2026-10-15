@@ -10,6 +10,7 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 
 [dependencies]
+url = "2"
 tower-lsp-server = "=0.23.0"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "rt-multi-thread", "sync"] }
 clap = { version = "4.6.1", features = ["derive"] }

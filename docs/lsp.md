@@ -54,6 +54,14 @@ The server supports:
   Snippet-capable clients can move between the text and destination fields.
   Clients without snippet support receive plain text.
 
+- Standard document links for direct links, reference links, images and
+  reference-definition destinations. Relative paths resolve against the current
+  document URI; Unicode and spaces are encoded as needed. Your client’s
+  open-link action can open the target even when it is not already open in the
+  editor. External URLs are supported too. Cross-file query strings and
+  fragments are preserved; target headings are not analyzed. Same-document
+  anchors continue to use definition navigation.
+
 - Warnings for unresolved references and duplicate definitions or IDs.
 
 Completion suppresses suggestions in code, math and parsed attributes. Reference
@@ -71,15 +79,15 @@ Formatting defaults to 72 columns. Clients can pass a positive integer
 ## Scope and implementation
 
 This version analyzes open documents independently. It does not scan a
-workspace, resolve cross-file links, offer rename, or validate filesystem paths.
-An incomplete delimiter alone is not reported as a syntax error.
+workspace, analyze symbols across files, offer rename, or validate filesystem
+paths. An incomplete delimiter alone is not reported as a syntax error.
 
 Each document version is analyzed in full. Its snapshot retains source, parser
-events, headings, definitions and references. Context is calculated on demand
-from events and nearby source; there is no complete AST or stored context tree.
-Analysis uses half-open UTF-8 byte ranges internally, while the protocol adapter
-uses UTF-16 positions. Parser positions referring to the synthetic final newline
-are clamped to the actual source.
+events, headings, definitions, references and document links. Context is
+calculated on demand from events and nearby source; there is no complete AST or
+stored context tree. Analysis uses half-open UTF-8 byte ranges internally, while
+the protocol adapter uses UTF-16 positions. Parser positions referring to the
+synthetic final newline are clamped to the actual source.
 
 The protocol adapter uses `tower-lsp-server` 0.23.0. The analysis library has no
 dependency on that framework’s types or runtime. Document updates are applied

@@ -60,6 +60,10 @@ impl Server {
         let result = server.request("initialize", json!({"processId":null,"rootUri":null,"capabilities":{"textDocument":{"completion":{"completionItem":{"snippetSupport":snippets}},"documentSymbol":{"hierarchicalDocumentSymbolSupport":true}}}}));
         assert_eq!(result["capabilities"]["positionEncoding"], "utf-16");
         assert_eq!(result["capabilities"]["textDocumentSync"], 2);
+        assert_eq!(
+            result["capabilities"]["documentLinkProvider"]["resolveProvider"],
+            false
+        );
         server.notify("initialized", json!({}));
         server
     }
@@ -234,5 +238,70 @@ fn footnote_anchor_and_link_conversion_completions() {
             assert_eq!(item["textEdit"]["range"]["end"]["character"], 7);
         }
     }
+    server.shutdown();
+}
+
+#[test]
+fn document_links_resolve_files_and_reference_targets() {
+    let mut server = Server::new(true);
+    let uri = "file:///workspace/docs/main.dj";
+    let source = "[direct](../manual.dj#Intro) [unicode](指南.dj) [encoded](a%20b.dj?q=1#part) [absolute](/shared/file.dj) [web](https://example.com/a) [ref][guide] ![image](img.png) [local](#Intro) [missing][unknown] ` [code](fake.dj) `\n\n[guide]: other.dj\n";
+    server.notify(
+        "textDocument/didOpen",
+        json!({"textDocument":{"uri":uri,"languageId":"djot","version":1,"text":source}}),
+    );
+    let result = server.request(
+        "textDocument/documentLink",
+        json!({"textDocument":{"uri":uri}}),
+    );
+    let links = result.as_array().unwrap();
+    let targets: Vec<_> = links
+        .iter()
+        .map(|l| l["target"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        targets,
+        [
+            "file:///workspace/manual.dj#Intro",
+            "file:///workspace/docs/%E6%8C%87%E5%8D%97.dj",
+            "file:///workspace/docs/a%20b.dj?q=1#part",
+            "file:///shared/file.dj",
+            "https://example.com/a",
+            "file:///workspace/docs/other.dj",
+            "file:///workspace/docs/img.png",
+            "file:///workspace/docs/other.dj",
+        ]
+    );
+    assert_eq!(
+        links[0]["range"],
+        json!({"start":{"line":0,"character":0},"end":{"line":0,"character":28}})
+    );
+    server.notify("textDocument/didChange", json!({"textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":"[ref][guide]\n\n[guide]: updated.dj"}]}));
+    let result = server.request(
+        "textDocument/documentLink",
+        json!({"textDocument":{"uri":uri}}),
+    );
+    assert_eq!(result[0]["target"], "file:///workspace/docs/updated.dj");
+    assert_eq!(result.as_array().unwrap().len(), 2);
+    server.shutdown();
+}
+
+#[test]
+fn document_links_handle_spaces_file_uris_and_non_file_documents() {
+    let mut server = Server::new(false);
+    server.open("[space](my file.dj) [file](file:///tmp/other.dj)\n");
+    let result = server.request(
+        "textDocument/documentLink",
+        json!({"textDocument":{"uri":"file:///test.dj"}}),
+    );
+    assert_eq!(result[0]["target"], "file:///my%20file.dj");
+    assert_eq!(result[1]["target"], "file:///tmp/other.dj");
+    server.notify("textDocument/didOpen", json!({"textDocument":{"uri":"untitled:buffer","languageId":"djot","version":1,"text":"[relative](a.dj) [web](https://example.com/)"}}));
+    let result = server.request(
+        "textDocument/documentLink",
+        json!({"textDocument":{"uri":"untitled:buffer"}}),
+    );
+    assert_eq!(result.as_array().unwrap().len(), 1);
+    assert_eq!(result[0]["target"], "https://example.com/");
     server.shutdown();
 }
