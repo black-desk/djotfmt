@@ -280,7 +280,11 @@ impl<'a> InlineParser<'a> {
             i += 1;
         }
         while i < self.matches.len() && self.matches[i].endpos <= endpos {
-            if self.matches[i].annot != "escape" && self.matches[i].annot != "str" {
+            // An open marker is already included in the following delimiter match.
+            if self.matches[i].annot != "escape"
+                && self.matches[i].annot != "str"
+                && self.matches[i].annot != "open_marker"
+            {
                 self.matches[i].annot = "str".to_string();
             }
             i += 1;
