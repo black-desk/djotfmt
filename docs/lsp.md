@@ -101,10 +101,11 @@ synchronous; large-document scheduling is a later optimization.
 
 ## Validation
 
-`cargo test --release` runs parser conformance tests, formatter tests, analysis
-tests and stdio protocol tests. Parser conformance needs the pinned djot.js
-submodule and Node.js; its harness builds the reference when needed. The Rust
-server has no JavaScript runtime dependency.
+`cargo test --release` runs parser conformance tests, formatter tests, and stdio
+protocol tests covering document analysis and position-encoding negotiation.
+Parser conformance needs the pinned djot.js submodule and Node.js; its harness
+builds the reference when needed. The Rust server has no JavaScript runtime
+dependency.
 
 </div>
 

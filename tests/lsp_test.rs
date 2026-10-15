@@ -23,6 +23,9 @@ impl Server {
         Self::with_capabilities(snippets, true)
     }
     fn with_capabilities(snippets: bool, nested: bool) -> Self {
+        Self::with_position_encodings(snippets, nested, None)
+    }
+    fn with_position_encodings(snippets: bool, nested: bool, encodings: Option<&[&str]>) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_djot-lsp"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -62,7 +65,14 @@ impl Server {
             next_id: 0,
             notifications: vec![],
         };
-        let result = server.request("initialize", json!({"processId":null,"rootUri":null,"capabilities":{"textDocument":{"completion":{"completionItem":{"snippetSupport":snippets}},"documentSymbol":{"hierarchicalDocumentSymbolSupport":nested}}}}));
+        let mut capabilities = json!({"textDocument":{"completion":{"completionItem":{"snippetSupport":snippets}},"documentSymbol":{"hierarchicalDocumentSymbolSupport":nested}}});
+        if let Some(encodings) = encodings {
+            capabilities["general"] = json!({"positionEncodings":encodings});
+        }
+        let result = server.request(
+            "initialize",
+            json!({"processId":null,"rootUri":null,"capabilities":capabilities}),
+        );
         assert_eq!(result["capabilities"]["positionEncoding"], "utf-16");
         assert_eq!(result["capabilities"]["textDocumentSync"], 2);
         assert_eq!(
@@ -746,4 +756,46 @@ fn stdio_formatting_applies_expected_text_and_reports_noop() {
         json!([])
     );
     server.shutdown();
+}
+
+#[test]
+fn stdio_position_encoding_negotiation_and_unicode_round_trip() {
+    // LSP requires UTF-16 support even if it is absent from the client's list.
+    // This server always selects UTF-16, including for legacy clients that omit
+    // general.positionEncodings. Verify actual requests/edits, not just the label.
+    for encodings in [
+        None,
+        Some(&[][..]),
+        Some(&["utf-16"][..]),
+        Some(&["utf-8", "utf-16"][..]),
+        Some(&["utf-32", "utf-8"][..]),
+        Some(&["utf-8"][..]),
+    ] {
+        let mut server = Server::with_position_encodings(true, true, encodings);
+        server.open("中😀 [x][标😀签]\r\n\r\n[标😀签]: guide.dj");
+        assert_eq!(server.diagnostics()["diagnostics"], json!([]));
+        let expected = json!({"uri":"file:///test.dj","range":{"start":{"line":2,"character":1},"end":{"line":2,"character":5}}});
+        assert_eq!(
+            server.at("textDocument/definition", 0, 9),
+            expected,
+            "{encodings:?}"
+        );
+        let refs = server.request("textDocument/references", json!({"textDocument":{"uri":"file:///test.dj"},"position":{"line":2,"character":1},"context":{"includeDeclaration":true}}));
+        assert_eq!(
+            refs,
+            json!([
+                {"uri":"file:///test.dj","range":{"start":{"line":0,"character":8},"end":{"line":0,"character":12}}},
+                expected
+            ])
+        );
+        server.notify("textDocument/didChange", json!({"textDocument":{"uri":"file:///test.dj","version":2},"contentChanges":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":4}},"text":"😀"}]}));
+        assert_eq!(server.at("textDocument/definition", 0, 7), expected);
+        let links = server.document("textDocument/documentLink");
+        assert_eq!(
+            links[0]["range"],
+            json!({"start":{"line":0,"character":2},"end":{"line":0,"character":11}})
+        );
+        assert_eq!(links[0]["target"], "file:///guide.dj");
+        server.shutdown();
+    }
 }
