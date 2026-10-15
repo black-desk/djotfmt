@@ -1,0 +1,86 @@
+{ % vim: set ft=djot : % }
+
+# Djot language server
+
+Build with `cargo build --release --bin djot-lsp`, or install both tools
+with `cargo install --path .`.
+Run `djot-lsp` to serve the Language Server Protocol over standard input
+and output. The server writes only protocol messages to standard output.
+The existing `djotfmt` command remains the formatter; `cargo run` still
+selects it by default.
+
+## Editor setup
+
+Configure your editor's LSP client to run `djot-lsp` for Djot buffers.
+Use language ID `djot` and associate `.dj` and `.djot` files with it.
+For example, in Neovim 0.11 or newer:
+
+``` lua
+vim.filetype.add({ extension = { dj = 'djot', djot = 'djot' } })
+vim.lsp.config('djot', {
+  cmd = { 'djot-lsp' },
+  filetypes = { 'djot' },
+})
+vim.lsp.enable('djot')
+```
+
+Enable your client's completion UI and snippet support to use link
+placeholders. Automatic completion triggering is a client setting; manual
+completion also works. Ordinary bracket pairing remains an editor setting.
+No custom protocol or editor-specific plugin is required by this server.
+
+## First version
+
+The server supports:
+
+- Whole-document formatting, using the existing formatter.
+
+- A hierarchical heading outline (a flat outline for clients that do not
+  support hierarchical document symbols).
+
+- Definition navigation and references within the open document for link
+  labels, footnotes, explicit IDs and implicit heading references.
+
+- Completion for link labels after `[text][`, footnotes after `[^`, and
+  anchors after `[text](#`.
+
+- Inline-link and reference-link templates after `[`. Accept a candidate
+  to insert it; this does not automatically insert text without acceptance.
+  Snippet-capable clients can move between the text and destination fields.
+  Clients without snippet support receive plain text.
+
+- Warnings for unresolved references and duplicate definitions or IDs.
+
+Completion suppresses suggestions in code, math and parsed attributes.
+Reference completions replace an existing closing bracket and can remove
+empty inline-link punctuation left by a link template.
+
+Formatting defaults to 72 columns. Clients can pass a positive integer
+`maxColumns` in formatting options to change it. The LSP indentation option
+`tabSize` is not used as a line-width setting.
+
+## Scope and implementation
+
+This version analyzes open documents independently. It does not scan a
+workspace, resolve cross-file links, offer rename, or validate filesystem
+paths. An incomplete delimiter alone is not reported as a syntax error.
+
+Each document version is analyzed in full. Its snapshot retains source,
+parser events, headings, definitions and references. Context is calculated
+on demand from events and nearby source; there is no complete AST or stored
+context tree. Analysis uses half-open UTF-8 byte ranges internally, while
+the protocol adapter uses UTF-16 positions. Parser positions referring to
+the synthetic final newline are clamped to the actual source.
+
+The protocol adapter uses `tower-lsp-server` 0.23.0. The analysis library
+has no dependency on that framework's types or runtime. Document updates
+are applied before notification handlers yield, and requests take immutable
+snapshots. Diagnostics carry document versions. Parsing and analysis are
+currently synchronous; large-document scheduling is a later optimization.
+
+## Validation
+
+`cargo test --release` runs parser conformance tests, formatter tests,
+analysis tests and stdio protocol tests. Parser conformance needs the pinned
+djot.js submodule and Node.js; its harness builds the reference when needed.
+The Rust server has no JavaScript runtime dependency.

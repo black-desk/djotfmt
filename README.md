@@ -60,6 +60,16 @@ djotfmt --help
 
 </div>
 
+<div id="Language-server" class="section">
+
+## Language server
+
+The `djot-lsp` executable provides formatting, navigation, references, heading
+outlines, completion and diagnostics over stdio. See the
+[language server guide](docs/lsp.md) for setup and scope.
+
+</div>
+
 <div id="Contributing" class="section">
 
 ## Contributing

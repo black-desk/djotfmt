@@ -46,6 +46,12 @@ Or after installing:
 djotfmt --help
 ```
 
+## Language server
+
+The `djot-lsp` executable provides formatting, navigation, references,
+heading outlines, completion and diagnostics over stdio.
+See the [language server guide](docs/lsp.md) for setup and scope.
+
 ## Contributing
 
 - [Djot syntax reference](
