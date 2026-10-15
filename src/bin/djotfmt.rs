@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#[path = "../cli.rs"]
 mod cli;
 
 fn main() -> std::io::Result<()> {
