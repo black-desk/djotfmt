@@ -6,7 +6,7 @@ use libtest_mimic::{Arguments, Failed, Trial};
 use pretty_assertions::assert_eq;
 
 /// Format events as a string matching djot CLI output.
-fn format_events(events: &[djotfmt::parser::Event]) -> String {
+fn format_events(events: &[djotls::parser::Event]) -> String {
     if events.is_empty() {
         return "[]".to_string();
     }
@@ -157,7 +157,7 @@ const DJOT_JS: &str = "third_party/djot.js";
 /// build instead of the conformance suite quietly vanishing.
 fn require_conformance() -> bool {
     matches!(
-        std::env::var("DJOTFMT_REQUIRE_CONFORMANCE"),
+        std::env::var("DJOTLS_REQUIRE_CONFORMANCE"),
         Ok(v) if !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false")
     )
 }
@@ -183,7 +183,7 @@ fn ensure_djot_built() {
     if !base.join("src").is_dir() {
         if require_conformance() {
             fatal(
-                "DJOTFMT_REQUIRE_CONFORMANCE is set but the djot.js submodule is \
+                "DJOTLS_REQUIRE_CONFORMANCE is set but the djot.js submodule is \
                  not checked out",
             );
         }
@@ -197,15 +197,15 @@ fn ensure_djot_built() {
 
     // No JS toolchain (or explicitly opted out) — leave the gap to
     // `check_djot_available`, which skips the suite with a clear message.
-    if std::env::var_os("DJOTFMT_SKIP_JS_BUILD").is_some() || !have("node") || !have("npm") {
+    if std::env::var_os("DJOTLS_SKIP_JS_BUILD").is_some() || !have("node") || !have("npm") {
         if require_conformance() {
-            let reason = if std::env::var_os("DJOTFMT_SKIP_JS_BUILD").is_some() {
-                "DJOTFMT_SKIP_JS_BUILD is set".to_string()
+            let reason = if std::env::var_os("DJOTLS_SKIP_JS_BUILD").is_some() {
+                "DJOTLS_SKIP_JS_BUILD is set".to_string()
             } else {
                 "node/npm is not available on PATH".to_string()
             };
             fatal(&format!(
-                "DJOTFMT_REQUIRE_CONFORMANCE is set but the djot.js reference build \
+                "DJOTLS_REQUIRE_CONFORMANCE is set but the djot.js reference build \
                  cannot be produced ({reason})"
             ));
         }
@@ -213,7 +213,7 @@ fn ensure_djot_built() {
             "note: djot.js lib/cli.js is missing or stale and no JS toolchain is \
              available; parser conformance tests will be skipped. Build manually with \
              `npm --prefix {DJOT_JS} ci && npm --prefix {DJOT_JS} run build`, or set \
-             DJOTFMT_SKIP_JS_BUILD=1 to silence this."
+             DJOTLS_SKIP_JS_BUILD=1 to silence this."
         );
         return;
     }
@@ -321,10 +321,10 @@ fn run_parser_event_test(test_file: &str, case_index: usize, input: &str) -> Res
     let map = build_byte_to_utf16_map(&normalized);
 
     // Get Rust parser output (byte offsets) and convert to UTF-16 positions
-    let rust_events = djotfmt::parser::parse_events(input);
-    let utf16_events: Vec<djotfmt::parser::Event> = rust_events
+    let rust_events = djotls::parser::parse_events(input);
+    let utf16_events: Vec<djotls::parser::Event> = rust_events
         .into_iter()
-        .map(|ev| djotfmt::parser::Event {
+        .map(|ev| djotls::parser::Event {
             startpos: map.get(ev.startpos).copied().unwrap_or(0),
             endpos: map.get(ev.endpos).copied().unwrap_or(0),
             annot: ev.annot,
@@ -355,7 +355,7 @@ fn main() {
     if !check_djot_available() {
         if require_conformance() {
             fatal(
-                "DJOTFMT_REQUIRE_CONFORMANCE is set but the djot.js CLI is unavailable \
+                "DJOTLS_REQUIRE_CONFORMANCE is set but the djot.js CLI is unavailable \
                  (lib/cli.js missing or node cannot run it)",
             );
         }

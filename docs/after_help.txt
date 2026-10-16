@@ -1,2 +1,2 @@
-Source code avaiable on https://github.com/black-desk/djotfmt
-Report bugs to https://github.com/black-desk/djotfmt/issues/new
+Source code available on https://github.com/black-desk/djotls
+Report bugs to https://github.com/black-desk/djotls/issues/new

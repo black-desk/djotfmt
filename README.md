@@ -1,8 +1,8 @@
-<div id="djotfmt" class="section">
+<div id="djotls" class="section">
 
-# djotfmt
+# djotls
 
-[![codecov](https://codecov.io/gh/black-desk/djotfmt/graph/badge.svg?token=GF5SAU9WIC)](https://codecov.io/gh/black-desk/djotfmt)
+[![codecov](https://codecov.io/gh/black-desk/djotls/graph/badge.svg?token=GF5SAU9WIC)](https://codecov.io/gh/black-desk/djotls)
 
 <div class="warning">
 
@@ -10,7 +10,8 @@
 
 </div>
 
-This project is a [`djot`](https://djot.net) formatter written in Rust.
+djotls is a [`Djot`](https://djot.net) toolkit written in Rust, with a parser,
+formatter (`djotfmt`) and language server (`djotls`).
 
 <div id="Build" class="section">
 
@@ -56,6 +57,7 @@ Or after installing:
 
 ```bash
 djotfmt --help
+djotls --help
 ```
 
 </div>
@@ -64,7 +66,7 @@ djotfmt --help
 
 ## Language server
 
-The `djot-lsp` executable provides formatting, navigation, references, heading
+The `djotls` executable provides formatting, navigation, references, heading
 outlines, completion and diagnostics over stdio. See the
 [language server guide](docs/lsp.md) for setup and scope.
 
@@ -82,7 +84,7 @@ outlines, completion and diagnostics over stdio. See the
 
 ## Bugs
 
-Report bugs to <https://github.com/black-desk/djotfmt/issues/new>.
+Report bugs to <https://github.com/black-desk/djotls/issues/new>.
 
 </div>
 

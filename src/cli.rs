@@ -4,6 +4,7 @@
 
 #[derive(clap::Parser, Debug)]
 #[command(
+    name = "djotfmt",
     version,
     about = "A tool to format Djot markup documentation.",
     long_about= include_str!("../docs/long_about.txt").trim(),

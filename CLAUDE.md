@@ -4,24 +4,26 @@ SPDX-FileCopyrightText: 2026 Chen Linxuan <me@black-desk.cn>
 SPDX-License-Identifier: MIT
 -->
 
-# CLAUDE.md — djotfmt
+# CLAUDE.md — djotls
 
 ## Project Overview
 
-djotfmt is a **Djot markup formatter** written in Rust. It parses Djot documents
-via a custom parser (ported from djot.js) and re-emits them with consistent
-formatting and line wrapping. Early stage, not production-ready.
+djotls is a **Djot toolkit** written in Rust. It includes a custom parser
+(ported from djot.js), the `djotfmt` formatter and the `djotls` language server.
+The server provides formatting, navigation, references, heading outlines,
+completion and diagnostics. Early stage, not production-ready.
 
 - **License**: GPL-3.0-or-later
-- **Repository**: https://github.com/black-desk/djotfmt
+- **Repository**: https://github.com/black-desk/djotls
 
 ## Build & Run Commands
 
 ```bash
 cargo build --release          # Build
 cargo test --release           # Run all tests
-cargo install --path .         # Install locally
-cargo run -r -- --help         # Show CLI help
+cargo install --path .         # Install djotfmt and djotls locally
+cargo run -r -- --help         # Show formatter CLI help
+cargo run -r --bin djotls      # Start the language server over stdio
 cargo run -r -- file.dj        # Format a file (stdout)
 cargo run -r -- -i file.dj     # Format inplace
 cargo run -r -- -vvv file.dj   # Max verbosity (trace-level logging)
@@ -31,21 +33,26 @@ cargo run -r -- -vvv file.dj   # Max verbosity (trace-level logging)
 
 ```
 src/
-  main.rs        — CLI entry point (arg parsing, file I/O, inplace editing)
+  bin/
+    djotfmt.rs   — Formatter CLI entry point (file I/O, inplace editing)
+    djotls.rs    — Language server entry point (stdio)
+  lsp.rs         — LSP protocol adapter
+  analysis/      — Document analysis and text coordinates, independent of LSP
   cli.rs         — Clap-based CLI argument definitions
-  lib.rs         — Library re-exports (fmt, parser modules)
-  fmt.rs         — Core formatting engine (~1350 lines, the heart of the project)
+  lib.rs         — Public library modules (analysis, fmt, parser)
+  fmt.rs         — Core formatting engine
   parser/        — Djot parser ported from djot.js (produces event stream)
     mod.rs       — Public API: parse_events(), Event struct
-    block.rs     — Block-level parsing (~1020 lines)
-    inline.rs    — Inline parsing (~935 lines)
-    attributes.rs — Attribute parsing (~327 lines)
+    block.rs     — Block-level parsing
+    inline.rs    — Inline parsing
+    attributes.rs — Attribute parsing
     find.rs      — Regex helper utilities (find_pos / find)
 
 tests/
-  fmt_test.rs          — Formatter test harness (libtest-mimic, 92 tests)
-  parser_events_test.rs — Parser event tests (364 cases, compared against djot.js CLI)
-  *.in / *.out         — Paired input/expected-output test cases (46 pairs)
+  fmt_test.rs          — Formatter test harness (libtest-mimic)
+  parser_events_test.rs — Parser conformance tests against djot.js
+  lsp_test.rs          — Document analysis and stdio protocol tests
+  *.in / *.out         — Paired input/expected-output formatter test cases
 
 third_party/
   djot/          — Reference Djot implementation
@@ -53,7 +60,7 @@ third_party/
   djot.js/       — JavaScript Djot implementation
                    (git submodule, reference only, not used at build or runtime)
 
-docs/            — Long about text and after-help text for CLI
+docs/            — CLI help text and language server setup/scope guide
 ```
 
 ## Architecture
@@ -87,7 +94,8 @@ items one-by-one and manages:
 
 ## Testing
 
-No unit tests. All testing is end-to-end via integration tests.
+Tests cover parser conformance, formatter output and idempotency, document
+analysis, text coordinates and the LSP stdio protocol.
 
 **Formatter tests** use a **paired-file approach**:
 
@@ -100,10 +108,12 @@ No unit tests. All testing is end-to-end via integration tests.
 
 **Parser tests** (`tests/parser_events_test.rs`):
 
-- 364 test cases from the djot.js test suite
+- Test cases from the pinned djot.js test suite
 - Compares Rust parser output against `djot.js` CLI (`djot --to events`)
-- Requires `djot` (Node.js) to be available in PATH for generating expected
-  output
+- Requires Node.js and the pinned djot.js submodule; the harness builds the
+  reference CLI when needed
+- Set `DJOTLS_REQUIRE_CONFORMANCE=1` to fail if the reference cannot run;
+  `DJOTLS_SKIP_JS_BUILD=1` skips the automatic reference build
 
 To add a formatter test: create `tests/<name>.in` and `tests/<name>.out`, then
 `cargo test --release`.
@@ -123,6 +133,8 @@ To add a formatter test: create `tests/<name>.in` and `tests/<name>.out`, then
 | ------------------------------ | ------------------------------------------------------------------- |
 | `regex`                        | Regex for parser module (byte-level matching with Unicode disabled) |
 | `lazy_static`                  | Lazy statics for parser regex patterns                              |
+| `tower-lsp-server` + `tokio`   | LSP protocol adapter and async stdio runtime                        |
+| `url`                          | Document-link URI resolution                                        |
 | `clap`                         | CLI argument parsing (derive API)                                   |
 | `unicode-width`                | Unicode-aware character width for line wrapping                     |
 | `roman`                        | Roman numeral conversion for ordered lists                          |

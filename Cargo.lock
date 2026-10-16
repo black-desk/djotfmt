@@ -188,7 +188,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "djotfmt"
+name = "djotls"
 version = "0.1.0"
 dependencies = [
  "clap",
