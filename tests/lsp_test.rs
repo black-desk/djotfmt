@@ -1564,6 +1564,102 @@ fn stdio_non_djot_files_are_checked_for_existence_and_read_failures_are_distinct
 }
 
 #[test]
+#[cfg(unix)] // A remote file host cannot map to a local path on Unix.
+fn stdio_invalid_local_link_uris_and_fragments_report_warnings() {
+    let repo = Repository::new();
+    repo.write("guide.dj", "# Guide\n");
+    let source = "[remote](file://other-host/guide.dj#Guide) [encoding](guide.dj#%FF)";
+    let uri = repo.uri("current.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, source);
+    let diagnostics = server.diagnostics_for(&uri)["diagnostics"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(diagnostics.len(), 2);
+    for (diagnostic, destination, message) in [
+        (
+            &diagnostics[0],
+            "file://other-host/guide.dj#Guide",
+            "Cannot resolve local file URI",
+        ),
+        (
+            &diagnostics[1],
+            "guide.dj#%FF",
+            "Target fragment is not valid UTF-8",
+        ),
+    ] {
+        assert_eq!(diagnostic["severity"], 2);
+        assert_eq!(diagnostic["message"], message);
+        assert_eq!(range_text(source, &diagnostic["range"]), destination);
+        assert!(
+            definition_uri(&mut server, &uri, source, source.find(destination).unwrap()).is_null()
+        );
+    }
+    // A subsequent valid edit clears the warnings and still resolves normally.
+    let source = "[valid](guide.dj#Guide)";
+    server.notify(
+        "textDocument/didChange",
+        json!({"textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":source}]}),
+    );
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    assert_eq!(
+        definition_uri(&mut server, &uri, source, source.find("guide.dj").unwrap())["uri"],
+        repo.uri("guide.dj")
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_rapid_link_edits_publish_current_diagnostics_and_clear_on_close() {
+    let repo = Repository::new();
+    // Keep the target outside the workspace index so validation reads it on a
+    // blocking worker while later edits can arrive over the real transport.
+    repo.write(".gitignore", "target.dj\n");
+    repo.write("target.dj", &"# Target\n\n".repeat(500));
+    let uri = repo.uri("current.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, "[link](target.dj#Target)");
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    for version in 2..=32 {
+        let source = format!("[link](target.dj#missing-{version})");
+        server.notify(
+            "textDocument/didChange",
+            json!({"textDocument":{"uri":uri,"version":version},"contentChanges":[{"text":source}]}),
+        );
+    }
+    let mut last_version = 1;
+    loop {
+        let params = server.diagnostics_for(&uri);
+        let version = params["version"].as_u64().unwrap();
+        assert!(
+            version >= last_version,
+            "diagnostics moved backwards: {params}"
+        );
+        last_version = version;
+        assert_eq!(params["diagnostics"].as_array().unwrap().len(), 1);
+        assert_eq!(params["diagnostics"][0]["severity"], 1);
+        assert_eq!(
+            params["diagnostics"][0]["message"],
+            format!("Anchor not found: missing-{version}")
+        );
+        if version == 32 {
+            break;
+        }
+    }
+    server.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
+    let params = server.diagnostics_for(&uri);
+    assert!(params["version"].is_null());
+    assert_eq!(params["diagnostics"], json!([]));
+    // Drain outstanding protocol work and reject diagnostics after the clear.
+    workspace_symbols(&mut server, "");
+    assert!(!server.notifications.iter().any(|msg| {
+        msg["method"] == "textDocument/publishDiagnostics" && msg["params"]["uri"] == uri
+    }));
+    server.shutdown();
+}
+
+#[test]
 fn stdio_links_inside_headings_take_precedence_over_the_surrounding_heading() {
     let repo = Repository::new();
     let target = "# Target\n";
