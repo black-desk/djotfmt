@@ -92,6 +92,11 @@ impl Server {
         }
         let result = server.request("initialize", initialization);
         assert_eq!(result["capabilities"]["workspaceSymbolProvider"], true);
+        let triggers = result["capabilities"]["completionProvider"]["triggerCharacters"]
+            .as_array()
+            .unwrap();
+        assert!(triggers.contains(&json!("(")));
+        assert!(triggers.contains(&json!("/")));
         assert_eq!(
             result["capabilities"]["workspace"]["workspaceFolders"]["supported"],
             true
@@ -1091,5 +1096,188 @@ fn stdio_workspace_symbol_names_include_explicit_and_generated_anchors() {
         vec![symbols[0].clone()]
     );
     assert_eq!(workspace_symbols(&mut server, "names.dj").len(), 2);
+    server.shutdown();
+}
+
+fn open_uri(server: &mut Server, uri: &str, source: &str) {
+    server.notify(
+        "textDocument/didOpen",
+        json!({"textDocument":{"uri":uri,"languageId":"djot","version":1,"text":source}}),
+    );
+}
+fn complete_uri(server: &mut Server, uri: &str, source: &str, at: usize) -> Vec<Value> {
+    let result = server.request(
+        "textDocument/completion",
+        json!({"textDocument":{"uri":uri},"position":source_position(source, at)}),
+    );
+    assert_eq!(result["isIncomplete"], true);
+    result["items"].as_array().unwrap().clone()
+}
+
+#[test]
+fn stdio_workspace_heading_completion_prefers_local_and_inserts_relative_links() {
+    let repo = Repository::new();
+    repo.write("guide.dj", "{#custom}\n# Guide\n");
+    repo.write("docs/sibling.dj", "# ARemote\n\n# ARemote\n\n# ZLocal\n");
+    let source = "# ZLocal\n\n[x](";
+    repo.write("docs/current.dj", source);
+    let uri = repo.uri("docs/current.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, source);
+    let items = complete_uri(&mut server, &uri, source, source.len());
+    assert_eq!(items.len(), 5);
+    assert_eq!(items[0]["label"], "ZLocal (#ZLocal)");
+    assert_eq!(items[0]["detail"], "#ZLocal");
+    assert_eq!(items[0]["filterText"], "ZLocal");
+    for item in &items[1..] {
+        assert!(items[0]["sortText"].as_str().unwrap() < item["sortText"].as_str().unwrap());
+    }
+    for destination in [
+        "#ZLocal",
+        "sibling.dj#ARemote",
+        "sibling.dj#ARemote-1",
+        "sibling.dj#ZLocal",
+        "../guide.dj#custom",
+    ] {
+        let item = items
+            .iter()
+            .find(|v| v["detail"] == destination)
+            .expect(destination);
+        assert_eq!(
+            apply_edit(source, &item["textEdit"]),
+            format!("{source}{destination})")
+        );
+        assert_eq!(item["insertTextFormat"], 1);
+    }
+    // Complete a partly typed target and replace its existing closing paren.
+    let source = "# ZLocal\n\n[x](../guide.dj#cu) after";
+    open_uri(&mut server, &uri, source);
+    let items = complete_uri(&mut server, &uri, source, source.find("cu)").unwrap() + 2);
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        apply_edit(source, &items[0]["textEdit"]),
+        "# ZLocal\n\n[x](../guide.dj#custom) after"
+    );
+    // The same basename and destination prefix are relative to the current
+    // document, rather than the repository or LSP workspace folder.
+    assert_eq!(items[0]["detail"], "../guide.dj#custom");
+    assert_eq!(items[0]["filterText"], "../guide.dj#custom");
+    let source = "# ZLocal\n\n[x](ARem";
+    open_uri(&mut server, &uri, source);
+    let items = complete_uri(&mut server, &uri, source, source.len());
+    assert_eq!(items.len(), 2);
+    for item in items {
+        assert_eq!(item["filterText"], "ARemote");
+        assert!(item["textEdit"]["newText"]
+            .as_str()
+            .unwrap()
+            .starts_with("sibling.dj#ARemote"));
+    }
+    server.shutdown();
+}
+
+#[test]
+fn stdio_workspace_heading_completion_tracks_unsaved_targets_and_disk_changes() {
+    let repo = Repository::new();
+    repo.write("other.dj", "# Disk\n");
+    let source = "[x](";
+    repo.write("current.dj", source);
+    let uri = repo.uri("current.dj");
+    let target = repo.uri("other.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, source);
+    assert_eq!(
+        complete_uri(&mut server, &uri, source, source.len())[0]["detail"],
+        "other.dj#Disk"
+    );
+    open_uri(&mut server, &target, "{#edited}\n# Unsaved\n");
+    let items = complete_uri(&mut server, &uri, source, source.len());
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["label"], "Unsaved (other.dj#edited)");
+    server.notify(
+        "textDocument/didClose",
+        json!({"textDocument":{"uri":target}}),
+    );
+    assert_eq!(
+        complete_uri(&mut server, &uri, source, source.len())[0]["detail"],
+        "other.dj#Disk"
+    );
+    std::fs::remove_file(repo.0.join("other.dj")).unwrap();
+    assert!(complete_uri(&mut server, &uri, source, source.len()).is_empty());
+    repo.write("new.dj", "# New\n");
+    assert_eq!(
+        complete_uri(&mut server, &uri, source, source.len())[0]["detail"],
+        "new.dj#New"
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_workspace_heading_completion_encodes_link_destinations_and_skips_code() {
+    let repo = Repository::new();
+    repo.write("docs/my file(1).dj", "# 中 文\n");
+    let source = "中😀 [x]()";
+    repo.write("docs/current.dj", source);
+    let uri = repo.uri("docs/current.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, source);
+    let items = complete_uri(&mut server, &uri, source, source.len() - 1);
+    assert_eq!(items.len(), 1);
+    let destination = "my%20file%281%29.dj#%E4%B8%AD-%E6%96%87";
+    assert_eq!(items[0]["detail"], destination);
+    let completed = apply_edit(source, &items[0]["textEdit"]);
+    assert_eq!(completed, format!("中😀 [x]({destination})"));
+    open_uri(&mut server, &uri, &completed);
+    let links = server.request(
+        "textDocument/documentLink",
+        json!({"textDocument":{"uri":uri}}),
+    );
+    assert_eq!(links.as_array().unwrap().len(), 1);
+    let target = url::Url::parse(links[0]["target"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        target.to_file_path().unwrap(),
+        repo.0.join("docs/my file(1).dj")
+    );
+    assert_eq!(target.fragment().unwrap(), "%E4%B8%AD-%E6%96%87");
+    for (source, at) in [
+        ("`[x](`", 5),
+        ("```\n[x](", 8),
+        ("\\[x](", 5),
+        ("word{key=\"[x](\"}", 14),
+        ("[x](done) trailing", 18),
+    ] {
+        open_uri(&mut server, &uri, source);
+        let response = server.request(
+            "textDocument/completion",
+            json!({"textDocument":{"uri":uri},"position":source_position(source, at)}),
+        );
+        assert!(response.is_null(), "{source}: {response}");
+    }
+    server.shutdown();
+}
+
+#[test]
+fn stdio_completed_local_encoded_anchors_resolve_without_diagnostics() {
+    let repo = Repository::new();
+    let source = "# 中 文\n\n[x](";
+    repo.write("current.dj", source);
+    let uri = repo.uri("current.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, source);
+    assert_eq!(server.diagnostics()["diagnostics"], json!([]));
+    let items = complete_uri(&mut server, &uri, source, source.len());
+    assert_eq!(items.len(), 1);
+    let destination = "#%E4%B8%AD-%E6%96%87";
+    assert_eq!(items[0]["detail"], destination);
+    let completed = apply_edit(source, &items[0]["textEdit"]);
+    open_uri(&mut server, &uri, &completed);
+    assert_eq!(server.diagnostics()["diagnostics"], json!([]));
+    let at = completed.rfind(destination).unwrap() + 1;
+    let target = server.request(
+        "textDocument/definition",
+        json!({"textDocument":{"uri":uri},"position":source_position(&completed, at)}),
+    );
+    assert_eq!(target["uri"], uri);
+    assert_eq!(range_text(&completed, &target["range"]), "中 文");
     server.shutdown();
 }

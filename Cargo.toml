@@ -17,6 +17,7 @@ exclude = [".format/**"]
 
 [dependencies]
 url = "2"
+percent-encoding = "2"
 serde_json = "1"
 tower-lsp-server = "=0.23.0"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "rt-multi-thread", "sync"] }

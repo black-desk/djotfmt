@@ -137,6 +137,15 @@ The server supports:
 - Completion for link labels after `[text][`, footnotes after `[^`, and anchors
   after `[text](#`.
 
+- Workspace heading completion after `[text](`. Current-document headings sort
+  before headings in other files. Completion inserts `#anchor` for the current
+  file and a URI relative to the current document’s directory for other files,
+  including the explicit or generated heading anchor. Titles and destination
+  prefixes can filter candidates. Existing closing parentheses are replaced, and
+  destination paths and anchors are encoded as needed. Open target buffers
+  contribute their unsaved headings. Percent-encoded same-document anchors
+  resolve for definition navigation and reference diagnostics.
+
 - Inline-link and reference-link templates after `[`. Accept a candidate to
   insert it; this does not automatically insert text without acceptance.
   Snippet-capable clients can move between the text and destination fields.
@@ -154,7 +163,10 @@ The server supports:
 
 Completion suppresses suggestions in code, math and parsed attributes. Reference
 completions replace an existing closing bracket and can remove empty inline-link
-punctuation left by a link template.
+punctuation left by a link template. Destination completion requests are
+triggered by `(`, `/` and `#`; clients may also request completion manually.
+Destination completion lists are marked incomplete so clients can requery while
+typing title or path prefixes.
 
 Formatting defaults to 72 columns. Clients can pass a positive integer
 `maxColumns` in formatting options to change it. The LSP indentation option
@@ -174,12 +186,13 @@ with the exact `.dj` extension. Submodules and symbolic-link files are not
 traversed. Standalone open documents remain supported without Git.
 
 Open buffers take precedence over disk snapshots, including unsaved changes.
-Closing a buffer restores disk content in workspace searches. Clients with
-file-watching support receive a watcher registration; workspace-folder and
-file-change notifications refresh the index. Searches also refresh disk state
-and Git ignore rules, so clients without file watching see current results.
-Discovery and disk analysis run on a blocking worker; unchanged source reuses
-its parsed snapshot. Each refresh still enumerates and reads repository files.
+Closing a buffer restores disk content in workspace searches and completion.
+Clients with file-watching support receive a watcher registration;
+workspace-folder and file-change notifications refresh the index. Searches and
+destination completion also refresh disk state and Git ignore rules, so clients
+without file watching see current results. Discovery and disk analysis run on a
+blocking worker; unchanged source reuses its parsed snapshot. Each refresh still
+enumerates and reads repository files.
 
 Navigation and references remain document-local. Cross-file anchor navigation,
 rename and filesystem-link validation are not yet supported. An incomplete
@@ -208,9 +221,10 @@ currently synchronous; large-document scheduling is a later optimization.
 protocol tests covering document analysis and position-encoding negotiation.
 Workspace stdio tests use temporary Git repositories to cover unopened files,
 ignore rules, duplicate titles, linked worktrees, open-buffer precedence, disk
-changes and workspace-folder changes. Parser conformance needs the pinned
-djot.js submodule and Node.js; its harness builds the reference when needed. The
-Rust server has no JavaScript runtime dependency.
+changes, workspace-folder changes, destination completion ordering, relative
+links and URI encoding. Parser conformance needs the pinned djot.js submodule
+and Node.js; its harness builds the reference when needed. The Rust server has
+no JavaScript runtime dependency.
 
 </div>
 

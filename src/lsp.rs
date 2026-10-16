@@ -23,7 +23,7 @@ use tower_lsp_server::{
 
 struct Snapshot {
     version: i32,
-    doc: Document,
+    doc: Arc<Document>,
 }
 
 pub struct Backend {
@@ -63,6 +63,28 @@ impl Backend {
             .await
             .map_err(|_| Error::internal_error())?;
         Ok(())
+    }
+
+    async fn workspace_documents(
+        &self,
+    ) -> Result<(Vec<std::path::PathBuf>, HashMap<Uri, Arc<Document>>)> {
+        let mut workspace = self.workspace.lock().await;
+        // Refresh on demand for clients without watchers and changes to Git rules.
+        Self::refresh_workspace(&mut workspace).await?;
+        let mut documents: HashMap<Uri, Arc<Document>> = workspace
+            .documents
+            .iter()
+            .filter_map(|(path, doc)| {
+                let uri = url::Url::from_file_path(path).ok()?.as_str().parse().ok()?;
+                Some((uri, doc.clone()))
+            })
+            .collect();
+        let roots = workspace.roots.clone();
+        drop(workspace);
+        for (uri, snapshot) in self.documents.read().unwrap().iter() {
+            documents.insert(uri.clone(), snapshot.doc.clone());
+        }
+        Ok((roots, documents))
     }
 
     async fn publish(&self, uri: Uri, snapshot: Arc<Snapshot>) {
@@ -113,6 +135,31 @@ fn link_target(base: &Uri, destination: &str) -> Option<Uri> {
 
 fn uri_path(uri: &Uri) -> Option<std::path::PathBuf> {
     url::Url::parse(uri.as_str()).ok()?.to_file_path().ok()
+}
+
+/// Link destinations use the source document's directory as their base.
+fn heading_destination(base: &Uri, target: &Uri, anchor: &str) -> Option<String> {
+    const ANCHOR: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+        .remove(b'-')
+        .remove(b'_')
+        .remove(b'.')
+        .remove(b'~');
+    let anchor = percent_encoding::utf8_percent_encode(anchor, ANCHOR);
+    if base == target {
+        return Some(format!("#{anchor}"));
+    }
+    let base = url::Url::parse(base.as_str()).ok()?;
+    let mut target = url::Url::parse(target.as_str()).ok()?;
+    if base.scheme() != "file" || target.scheme() != "file" {
+        return None;
+    }
+    target.set_fragment(None);
+    target.set_query(None);
+    let relative = base.make_relative(&target)?;
+    Some(format!(
+        "{}#{anchor}",
+        relative.replace('(', "%28").replace(')', "%29")
+    ))
 }
 
 fn snippet_escape(text: &str) -> String {
@@ -189,7 +236,13 @@ impl LanguageServer for Backend {
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 completion_provider: Some(CompletionOptions {
-                    trigger_characters: Some(vec!["[".into(), "^".into(), "#".into()]),
+                    trigger_characters: Some(vec![
+                        "[".into(),
+                        "^".into(),
+                        "#".into(),
+                        "(".into(),
+                        "/".into(),
+                    ]),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -246,22 +299,7 @@ impl LanguageServer for Backend {
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<WorkspaceSymbolResponse>> {
-        let mut workspace = self.workspace.lock().await;
-        // Also refresh on demand for clients without file watching, and to pick
-        // up changes to Git ignore rules and repository membership.
-        Self::refresh_workspace(&mut workspace).await?;
-        let mut documents: HashMap<Uri, Arc<Document>> = workspace
-            .documents
-            .iter()
-            .filter_map(|(path, doc)| {
-                let uri = url::Url::from_file_path(path).ok()?.as_str().parse().ok()?;
-                Some((uri, doc.clone()))
-            })
-            .collect();
-        let roots = workspace.roots.clone();
-        drop(workspace);
-        // Overlay open buffers last, including unsaved and standalone documents.
-        let open = self.documents.read().unwrap();
+        let (roots, documents) = self.workspace_documents().await?;
         let query = params.query.to_lowercase();
         let mut symbols = Vec::new();
         let mut add = |uri: &Uri, doc: &Document| {
@@ -307,10 +345,6 @@ impl LanguageServer for Backend {
                 });
             }
         };
-        for (uri, snapshot) in open.iter() {
-            documents.remove(uri);
-            add(uri, &snapshot.doc);
-        }
         for (uri, doc) in &documents {
             add(uri, doc);
         }
@@ -345,7 +379,7 @@ impl LanguageServer for Backend {
         let item = params.text_document;
         let snapshot = Arc::new(Snapshot {
             version: item.version,
-            doc: Document::new(item.text),
+            doc: Arc::new(Document::new(item.text)),
         });
         self.documents
             .write()
@@ -388,7 +422,7 @@ impl LanguageServer for Backend {
             }
             let snapshot = Arc::new(Snapshot {
                 version: params.text_document.version,
-                doc: Document::new(source),
+                doc: Arc::new(Document::new(source)),
             });
             docs.insert(params.text_document.uri.clone(), snapshot.clone());
             snapshot
@@ -559,6 +593,65 @@ impl LanguageServer for Backend {
         let Some(context) = doc.completion_context(offset(doc, p.position)?) else {
             return Ok(None);
         };
+        if context.kind == CompletionKind::Destination {
+            let (_, mut documents) = self.workspace_documents().await?;
+            documents.insert(p.text_document.uri.clone(), snapshot.doc.clone());
+            let mut items = Vec::new();
+            let prefix = context.prefix.to_lowercase();
+            for (uri, target) in documents {
+                let local = uri == p.text_document.uri;
+                for heading in &target.headings {
+                    let Some(destination) =
+                        heading_destination(&p.text_document.uri, &uri, &heading.id)
+                    else {
+                        continue;
+                    };
+                    if !destination.to_lowercase().starts_with(&prefix)
+                        && !heading.title.to_lowercase().contains(&prefix)
+                    {
+                        continue;
+                    }
+                    let title = if heading.title.is_empty() {
+                        "(untitled)"
+                    } else {
+                        &heading.title
+                    };
+                    items.push(CompletionItem {
+                        label: format!("{title} ({destination})"),
+                        kind: Some(CompletionItemKind::REFERENCE),
+                        detail: Some(destination.clone()),
+                        sort_text: Some(format!(
+                            "{}:{title}:{destination}",
+                            if local { 0 } else { 1 }
+                        )),
+                        filter_text: Some(
+                            if !prefix.is_empty() && destination.to_lowercase().starts_with(&prefix)
+                            {
+                                destination.clone()
+                            } else {
+                                title.to_string()
+                            },
+                        ),
+                        insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                        text_edit: Some(
+                            TextEdit::new(
+                                range(doc, context.replace.clone()),
+                                format!("{destination})"),
+                            )
+                            .into(),
+                        ),
+                        ..Default::default()
+                    });
+                }
+            }
+            items.sort_by(|a, b| a.sort_text.cmp(&b.sort_text));
+            // Requery as the user types: the same candidate can be matched by
+            // its title or destination, with an appropriate client filter text.
+            return Ok(Some(CompletionResponse::List(CompletionList {
+                is_incomplete: true,
+                items,
+            })));
+        }
         let snippets = self.snippets.load(Ordering::Relaxed);
         let mut items = Vec::new();
         if context.kind == CompletionKind::Template {
@@ -597,6 +690,7 @@ impl LanguageServer for Backend {
                 }
                 CompletionKind::Footnote => d.kind == DjotSymbolKind::Footnote,
                 CompletionKind::Anchor => d.kind == DjotSymbolKind::Anchor,
+                CompletionKind::Destination => false,
             };
             if !applicable || !d.key.starts_with(&context.prefix) || !keys.insert(d.key.clone()) {
                 continue;
