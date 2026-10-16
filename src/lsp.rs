@@ -5,6 +5,7 @@
 use djotls::{
     analysis::{text::LineIndex, CompletionKind, Document, SymbolKind as DjotSymbolKind},
     fmt::{self, FmtConfig},
+    workspace::Workspace,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -28,6 +29,8 @@ struct Snapshot {
 pub struct Backend {
     client: Client,
     documents: RwLock<HashMap<Uri, Arc<Snapshot>>>,
+    workspace: tokio::sync::Mutex<Workspace>,
+    watch_files: AtomicBool,
     snippets: AtomicBool,
     nested_symbols: AtomicBool,
 }
@@ -37,6 +40,8 @@ impl Backend {
         Self {
             client,
             documents: RwLock::new(HashMap::new()),
+            workspace: tokio::sync::Mutex::new(Workspace::default()),
+            watch_files: AtomicBool::new(false),
             snippets: AtomicBool::new(false),
             nested_symbols: AtomicBool::new(false),
         }
@@ -49,6 +54,15 @@ impl Backend {
             .get(uri)
             .cloned()
             .ok_or_else(|| Error::invalid_params("Document is not open"))
+    }
+
+    async fn refresh_workspace(workspace: &mut Workspace) -> Result<()> {
+        let folders = workspace.folders.clone();
+        let previous = workspace.documents.clone();
+        *workspace = tokio::task::spawn_blocking(move || Workspace::scan(folders, previous))
+            .await
+            .map_err(|_| Error::internal_error())?;
+        Ok(())
     }
 
     async fn publish(&self, uri: Uri, snapshot: Arc<Snapshot>) {
@@ -97,6 +111,10 @@ fn link_target(base: &Uri, destination: &str) -> Option<Uri> {
     target.as_str().parse().ok()
 }
 
+fn uri_path(uri: &Uri) -> Option<std::path::PathBuf> {
+    url::Url::parse(uri.as_str()).ok()?.to_file_path().ok()
+}
+
 fn snippet_escape(text: &str) -> String {
     text.replace('\\', "\\\\")
         .replace('$', "\\$")
@@ -105,6 +123,35 @@ fn snippet_escape(text: &str) -> String {
 
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        self.watch_files.store(
+            params
+                .capabilities
+                .workspace
+                .as_ref()
+                .and_then(|w| w.did_change_watched_files.as_ref())
+                .and_then(|w| w.dynamic_registration)
+                .unwrap_or(false),
+            Ordering::Relaxed,
+        );
+        let mut folders: Vec<_> = params
+            .workspace_folders
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|f| uri_path(&f.uri))
+            .collect();
+        #[allow(deprecated)]
+        if folders.is_empty() {
+            if let Some(path) = params.root_uri.as_ref().and_then(uri_path) {
+                folders.push(path);
+            } else if let Some(path) = params.root_path {
+                folders.push(path.into());
+            }
+        }
+        {
+            let mut workspace = self.workspace.lock().await;
+            workspace.folders = folders;
+            Self::refresh_workspace(&mut workspace).await?;
+        }
         let text = params.capabilities.text_document.as_ref();
         self.snippets.store(
             text.and_then(|t| t.completion.as_ref())
@@ -127,6 +174,14 @@ impl LanguageServer for Backend {
                 )),
                 document_formatting_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
+                workspace: Some(WorkspaceServerCapabilities {
+                    workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                        supported: Some(true),
+                        change_notifications: Some(OneOf::Left(true)),
+                    }),
+                    ..Default::default()
+                }),
                 document_link_provider: Some(DocumentLinkOptions {
                     resolve_provider: Some(false),
                     work_done_progress_options: Default::default(),
@@ -145,6 +200,117 @@ impl LanguageServer for Backend {
                 version: Some(env!("CARGO_PKG_VERSION").into()),
             }),
         })
+    }
+
+    async fn initialized(&self, _: InitializedParams) {
+        if self.watch_files.load(Ordering::Relaxed) {
+            let registration = Registration {
+                id: "djotls-workspace-files".into(),
+                method: "workspace/didChangeWatchedFiles".into(),
+                register_options: Some(serde_json::json!({"watchers":[{"globPattern":"**/*.dj"}]})),
+            };
+            if let Err(error) = self.client.register_capability(vec![registration]).await {
+                self.client
+                    .log_message(
+                        MessageType::WARNING,
+                        format!("File watching unavailable: {error}"),
+                    )
+                    .await;
+            }
+        }
+    }
+
+    async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
+        let mut workspace = self.workspace.lock().await;
+        for folder in params.event.removed {
+            if let Some(path) = uri_path(&folder.uri) {
+                workspace.folders.retain(|p| p != &path);
+            }
+        }
+        for folder in params.event.added {
+            if let Some(path) = uri_path(&folder.uri) {
+                if !workspace.folders.contains(&path) {
+                    workspace.folders.push(path);
+                }
+            }
+        }
+        let _ = Self::refresh_workspace(&mut workspace).await;
+    }
+
+    async fn did_change_watched_files(&self, _: DidChangeWatchedFilesParams) {
+        let mut workspace = self.workspace.lock().await;
+        let _ = Self::refresh_workspace(&mut workspace).await;
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<WorkspaceSymbolResponse>> {
+        let mut workspace = self.workspace.lock().await;
+        // Also refresh on demand for clients without file watching, and to pick
+        // up changes to Git ignore rules and repository membership.
+        Self::refresh_workspace(&mut workspace).await?;
+        let mut documents: HashMap<Uri, Arc<Document>> = workspace
+            .documents
+            .iter()
+            .filter_map(|(path, doc)| {
+                let uri = url::Url::from_file_path(path).ok()?.as_str().parse().ok()?;
+                Some((uri, doc.clone()))
+            })
+            .collect();
+        drop(workspace);
+        // Overlay open buffers last, including unsaved and standalone documents.
+        let open = self.documents.read().unwrap();
+        let query = params.query.to_lowercase();
+        let mut symbols = Vec::new();
+        let mut add = |uri: &Uri, doc: &Document| {
+            for heading in &doc.headings {
+                if !heading.title.to_lowercase().contains(&query) {
+                    continue;
+                }
+                #[allow(deprecated)]
+                symbols.push(SymbolInformation {
+                    name: if heading.title.is_empty() {
+                        "(untitled)".into()
+                    } else {
+                        heading.title.clone()
+                    },
+                    kind: SymbolKind::STRING,
+                    tags: None,
+                    deprecated: None,
+                    location: Location::new(uri.clone(), range(doc, heading.selection.clone())),
+                    container_name: heading.parent.map(|p| doc.headings[p].title.clone()),
+                });
+            }
+        };
+        for (uri, snapshot) in open.iter() {
+            documents.remove(uri);
+            add(uri, &snapshot.doc);
+        }
+        for (uri, doc) in &documents {
+            add(uri, doc);
+        }
+        symbols.sort_by(|a, b| {
+            a.location
+                .uri
+                .as_str()
+                .cmp(b.location.uri.as_str())
+                .then(
+                    a.location
+                        .range
+                        .start
+                        .line
+                        .cmp(&b.location.range.start.line),
+                )
+                .then(
+                    a.location
+                        .range
+                        .start
+                        .character
+                        .cmp(&b.location.range.start.character),
+                )
+        });
+        Ok(Some(WorkspaceSymbolResponse::Flat(symbols)))
     }
 
     async fn shutdown(&self) -> Result<()> {
