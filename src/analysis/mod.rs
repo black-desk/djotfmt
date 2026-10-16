@@ -72,6 +72,7 @@ pub struct CompletionContext {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionKind {
+    Destination,
     Link,
     Footnote,
     Anchor,
@@ -451,7 +452,10 @@ impl Document {
                         normalize_label(&text)
                     } else {
                         name_range.start = (name_range.start + 1).min(name_range.end);
-                        text[1..].to_string()
+                        percent_encoding::percent_decode_str(&text[1..])
+                            .decode_utf8()
+                            .map(|key| key.into_owned())
+                            .unwrap_or_else(|_| text[1..].to_string())
                     };
                     self.references.push(Reference {
                         kind: if is_reference {
@@ -648,6 +652,13 @@ impl Document {
                 start + anchor + 3,
                 ')',
             )
+        } else if let Some(destination) = before.rfind("](").filter(|&i| i >= bracket) {
+            (
+                CompletionKind::Destination,
+                &before[destination + 2..],
+                start + destination + 2,
+                ')',
+            )
         } else if let Some(prefix) = tail.strip_prefix('^') {
             (CompletionKind::Footnote, prefix, absolute + 2, ']')
         } else if bracket > 0 && before.as_bytes()[bracket - 1] == b']' {
@@ -686,7 +697,7 @@ impl Document {
             kind,
             replace: name_start..replace_end,
             prefix: prefix.to_string(),
-            suffix: if kind == CompletionKind::Anchor {
+            suffix: if matches!(kind, CompletionKind::Anchor | CompletionKind::Destination) {
                 ")"
             } else {
                 "]"

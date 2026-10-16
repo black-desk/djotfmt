@@ -198,6 +198,7 @@ dependencies = [
  "lazy_static",
  "libtest-mimic",
  "log",
+ "percent-encoding",
  "pretty_assertions",
  "regex",
  "roman",
