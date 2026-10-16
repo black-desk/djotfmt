@@ -26,6 +26,23 @@ impl Server {
         Self::with_position_encodings(snippets, nested, None)
     }
     fn with_position_encodings(snippets: bool, nested: bool, encodings: Option<&[&str]>) -> Self {
+        Self::start(snippets, nested, encodings, None)
+    }
+    fn start(
+        snippets: bool,
+        nested: bool,
+        encodings: Option<&[&str]>,
+        folders: Option<Value>,
+    ) -> Self {
+        Self::start_with_init(snippets, nested, encodings, folders, json!({}))
+    }
+    fn start_with_init(
+        snippets: bool,
+        nested: bool,
+        encodings: Option<&[&str]>,
+        folders: Option<Value>,
+        overrides: Value,
+    ) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_djotls"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -69,9 +86,15 @@ impl Server {
         if let Some(encodings) = encodings {
             capabilities["general"] = json!({"positionEncodings":encodings});
         }
-        let result = server.request(
-            "initialize",
-            json!({"processId":null,"rootUri":null,"capabilities":capabilities}),
+        let mut initialization = json!({"processId":null,"rootUri":null,"workspaceFolders":folders,"capabilities":capabilities});
+        for (key, value) in overrides.as_object().unwrap() {
+            initialization[key] = value.clone();
+        }
+        let result = server.request("initialize", initialization);
+        assert_eq!(result["capabilities"]["workspaceSymbolProvider"], true);
+        assert_eq!(
+            result["capabilities"]["workspace"]["workspaceFolders"]["supported"],
+            true
         );
         assert_eq!(result["capabilities"]["positionEncoding"], "utf-16");
         assert_eq!(result["capabilities"]["textDocumentSync"], 2);
@@ -107,6 +130,9 @@ impl Server {
                 .expect("LSP response timed out");
             if msg["id"] == id {
                 return msg;
+            }
+            if msg["method"] == "client/registerCapability" {
+                self.send(json!({"jsonrpc":"2.0","id":msg["id"],"result":null}));
             }
             self.notifications.push(msg);
         }
@@ -798,4 +824,239 @@ fn stdio_position_encoding_negotiation_and_unicode_round_trip() {
         assert_eq!(links[0]["target"], "file:///guide.dj");
         server.shutdown();
     }
+}
+
+// Fixtures are real Git repositories and all assertions go through the binary's
+// stdio interface. Nothing inspects the workspace or analysis implementation.
+struct Repository(std::path::PathBuf);
+impl Repository {
+    fn new() -> Self {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "djotls-workspace-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let repo = Self(path);
+        repo.git(&["init", "--quiet"]);
+        repo
+    }
+    fn git(&self, args: &[&str]) {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&self.0)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    fn write(&self, name: &str, source: &str) {
+        let path = self.0.join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, source).unwrap();
+    }
+    fn uri(&self, name: &str) -> String {
+        url::Url::from_file_path(self.0.join(name))
+            .unwrap()
+            .to_string()
+    }
+    fn folder(&self, name: &str) -> Value {
+        json!({"uri": self.uri(name), "name":"fixture"})
+    }
+}
+impl Drop for Repository {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+fn workspace_symbols(server: &mut Server, query: &str) -> Vec<Value> {
+    server
+        .request("workspace/symbol", json!({"query":query}))
+        .as_array()
+        .unwrap()
+        .clone()
+}
+fn symbol_names(server: &mut Server) -> Vec<String> {
+    let mut names: Vec<_> = workspace_symbols(server, "")
+        .iter()
+        .map(|v| v["name"].as_str().unwrap().to_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn stdio_workspace_git_discovery_and_unopened_headings() {
+    let repo = Repository::new();
+    repo.write(".gitignore", "ignored/\ntracked.dj\n");
+    repo.write("tracked.dj", "# Tracked\n");
+    repo.git(&["add", "-f", "tracked.dj"]);
+    // Index the working tree rather than the staged content.
+    repo.write("tracked.dj", "# Working tree\n");
+    repo.write("docs/中 文.dj", "# 中😀\r\n\r\n## Child\r\n");
+    repo.write("ignored/no.dj", "# Ignored\n");
+    repo.write("wrong.djot", "# Wrong extension\n");
+    repo.write("upper.DJ", "# Upper extension\n");
+    repo.write("vendor/inner.dj", "# Submodule\n");
+    repo.git(&["-C", "vendor", "init", "--quiet"]);
+    repo.git(&["-C", "vendor", "add", "inner.dj"]);
+    repo.git(&[
+        "-C",
+        "vendor",
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--quiet",
+        "-m",
+        "fixture",
+    ]);
+    repo.git(&["add", "vendor"]);
+    repo.write("gone.dj", "# Deleted\n");
+    repo.git(&["add", "gone.dj"]);
+    std::fs::remove_file(repo.0.join("gone.dj")).unwrap();
+    // Starting below the root still indexes the entire repository. Repeating a
+    // repository through overlapping workspace folders must not duplicate it.
+    let mut server = Server::start(
+        true,
+        true,
+        None,
+        Some(json!([repo.folder("docs"), repo.folder("")])),
+    );
+    assert_eq!(symbol_names(&mut server), ["Child", "Working tree", "中😀"]);
+    let symbols = workspace_symbols(&mut server, "CHILD");
+    assert_eq!(symbols.len(), 1);
+    assert_eq!(symbols[0]["location"]["uri"], repo.uri("docs/中 文.dj"));
+    assert_eq!(symbols[0]["containerName"], "中😀");
+    let source = "# 中😀\r\n\r\n## Child\r\n";
+    assert_eq!(
+        range_text(source, &symbols[0]["location"]["range"]),
+        "Child"
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_workspace_open_buffers_override_disk_until_close() {
+    let repo = Repository::new();
+    repo.write("a.dj", "# Disk\n");
+    let uri = repo.uri("a.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    assert_eq!(symbol_names(&mut server), ["Disk"]);
+    server.notify(
+        "textDocument/didOpen",
+        json!({"textDocument":{"uri":uri,"languageId":"djot","version":1,"text":"# Unsaved\n"}}),
+    );
+    assert_eq!(symbol_names(&mut server), ["Unsaved"]);
+    server.notify("textDocument/didChange", json!({"textDocument":{"uri":uri,"version":2},"contentChanges":[{"range":{"start":{"line":0,"character":2},"end":{"line":0,"character":9}},"text":"Edited"}]}));
+    assert_eq!(symbol_names(&mut server), ["Edited"]);
+    repo.write("a.dj", "# External change\n");
+    server.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({"changes":[{"uri":uri,"type":2}]}),
+    );
+    assert_eq!(symbol_names(&mut server), ["Edited"]);
+    server.notify("textDocument/didClose", json!({"textDocument":{"uri":uri}}));
+    assert_eq!(symbol_names(&mut server), ["External change"]);
+    std::fs::remove_file(repo.0.join("a.dj")).unwrap();
+    assert!(symbol_names(&mut server).is_empty());
+    repo.write("new.dj", "# New\n");
+    assert_eq!(symbol_names(&mut server), ["New"]);
+    repo.write(".gitignore", "new.dj\n");
+    assert!(symbol_names(&mut server).is_empty());
+    server.shutdown();
+}
+
+#[test]
+fn stdio_workspace_folder_changes_and_standalone_buffers() {
+    let first = Repository::new();
+    let second = Repository::new();
+    first.write("a.dj", "# First\n");
+    second.write("b.dj", "# Second\n");
+    let mut server = Server::start(true, true, None, Some(json!([first.folder("")])));
+    assert_eq!(symbol_names(&mut server), ["First"]);
+    server.notify(
+        "workspace/didChangeWorkspaceFolders",
+        json!({"event":{"removed":[first.folder("")],"added":[second.folder("")]}}),
+    );
+    assert_eq!(symbol_names(&mut server), ["Second"]);
+    server.notify(
+        "workspace/didChangeWorkspaceFolders",
+        json!({"event":{"removed":[second.folder("")],"added":[]}}),
+    );
+    assert!(symbol_names(&mut server).is_empty());
+    server.open("# Standalone\n");
+    assert_eq!(symbol_names(&mut server), ["Standalone"]);
+    server.shutdown();
+}
+
+#[test]
+fn stdio_workspace_root_uri_watcher_registration_and_linked_worktree() {
+    let repo = Repository::new();
+    repo.write("root.dj", "# Root\n");
+    repo.git(&["add", "root.dj"]);
+    repo.git(&[
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--quiet",
+        "-m",
+        "fixture",
+    ]);
+    let worktree = Repository::new();
+    std::fs::remove_dir_all(worktree.0.join(".git")).unwrap();
+    repo.git(&["worktree", "add", "--detach", worktree.0.to_str().unwrap()]);
+    worktree.write("root.dj", "# Worktree\n");
+    let mut server = Server::start_with_init(
+        true,
+        true,
+        None,
+        None,
+        json!({
+            "rootUri":worktree.uri(""),
+            "capabilities":{"workspace":{"didChangeWatchedFiles":{"dynamicRegistration":true}}}
+        }),
+    );
+    assert_eq!(symbol_names(&mut server), ["Worktree"]);
+    let registration = server
+        .notifications
+        .iter()
+        .find(|v| v["method"] == "client/registerCapability")
+        .expect("watcher registration");
+    assert_eq!(
+        registration["params"]["registrations"][0]["registerOptions"]["watchers"][0]["globPattern"],
+        "**/*.dj"
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_workspace_duplicate_titles_keep_distinct_file_locations() {
+    let repo = Repository::new();
+    repo.write("a.dj", "# Intro\n\n# Intro\n");
+    repo.write("b.dj", "# Intro\n");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    let symbols = workspace_symbols(&mut server, "Intro");
+    assert_eq!(symbols.len(), 3);
+    for (symbol, file, line) in [
+        (&symbols[0], "a.dj", 0),
+        (&symbols[1], "a.dj", 2),
+        (&symbols[2], "b.dj", 0),
+    ] {
+        assert_eq!(symbol["name"], "Intro");
+        assert_eq!(symbol["location"]["uri"], repo.uri(file));
+        assert_eq!(
+            symbol["location"]["range"]["start"],
+            json!({"line":line,"character":2})
+        );
+    }
+    server.shutdown();
 }

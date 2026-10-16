@@ -17,6 +17,7 @@ exclude = [".format/**"]
 
 [dependencies]
 url = "2"
+serde_json = "1"
 tower-lsp-server = "=0.23.0"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "rt-multi-thread", "sync"] }
 clap = { version = "4.6.1", features = ["derive"] }
@@ -29,7 +30,6 @@ roman = "0.2.0"
 unicode-width = "0.2.2"
 
 [dev-dependencies]
-serde_json = "1"
 glob = "0.3"
 libtest-mimic = "0.8"
 pretty_assertions = "1.4.1"
