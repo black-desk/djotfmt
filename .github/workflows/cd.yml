@@ -5,24 +5,18 @@
 name: Continuous Deployment
 
 on:
-  push:
-    tags:
-      - v*-*
-    branches:
-      - master
+  workflow_call:
 
 jobs:
-  # TODO: Uncomment and configure this job for publishing to crates.io
-  # publish:
-  #   permissions:
-  #     contents: write
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: black-desk/workflows/goreleaser@master
-
-  # TODO: Remove this job
-  place-holder:
+  release:
+    concurrency:
+      group: djotls-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
     runs-on: ubuntu-latest
     steps:
-      - run: |
-          echo "Hello world!"
+      - uses: black-desk/workflows/goreleaser@master
+        with:
+          publish-crate: "true"
