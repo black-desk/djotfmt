@@ -258,19 +258,41 @@ impl LanguageServer for Backend {
                 Some((uri, doc.clone()))
             })
             .collect();
+        let roots = workspace.roots.clone();
         drop(workspace);
         // Overlay open buffers last, including unsaved and standalone documents.
         let open = self.documents.read().unwrap();
         let query = params.query.to_lowercase();
         let mut symbols = Vec::new();
         let mut add = |uri: &Uri, doc: &Document| {
+            let path = uri_path(uri);
+            let display_path = path
+                .as_ref()
+                .and_then(|path| {
+                    roots
+                        .iter()
+                        .filter_map(|root| path.strip_prefix(root).ok())
+                        .min_by_key(|relative| relative.components().count())
+                        .map(|relative| {
+                            relative
+                                .components()
+                                .map(|component| component.as_os_str().to_string_lossy())
+                                .collect::<Vec<_>>()
+                                .join("/")
+                        })
+                        .or_else(|| {
+                            path.file_name()
+                                .map(|name| name.to_string_lossy().into_owned())
+                        })
+                })
+                .unwrap_or_else(|| uri.as_str().to_owned());
             for heading in &doc.headings {
                 let title = if heading.title.is_empty() {
                     "(untitled)"
                 } else {
                     &heading.title
                 };
-                let name = format!("{title} ({}#{})", uri.as_str(), heading.id);
+                let name = format!("{title} ({display_path}#{})", heading.id);
                 if !name.to_lowercase().contains(&query) {
                     continue;
                 }

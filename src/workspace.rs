@@ -8,6 +8,7 @@ use std::{collections::HashMap, path::PathBuf, process::Command, sync::Arc};
 #[derive(Default)]
 pub struct Workspace {
     pub folders: Vec<PathBuf>,
+    pub roots: Vec<PathBuf>,
     pub documents: HashMap<PathBuf, Arc<Document>>,
 }
 
@@ -74,6 +75,10 @@ impl Workspace {
                 }
             }
         }
-        Self { folders, documents }
+        Self {
+            folders,
+            roots,
+            documents,
+        }
     }
 }
