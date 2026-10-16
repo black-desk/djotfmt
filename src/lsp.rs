@@ -5,7 +5,8 @@
 use djotls::{
     analysis::{
         links::{Resolution, Resolver},
-        rename::Rename,
+        moves::{self, Moves},
+        rename::{FileEdits, Rename},
         text::LineIndex,
         CompletionKind, Document, Severity, SymbolKind as DjotSymbolKind,
     },
@@ -40,6 +41,7 @@ pub struct Backend {
     snippets: AtomicBool,
     nested_symbols: AtomicBool,
     versioned_edits: AtomicBool,
+    file_rename_edits: AtomicBool,
 }
 
 impl Backend {
@@ -53,6 +55,7 @@ impl Backend {
             snippets: AtomicBool::new(false),
             nested_symbols: AtomicBool::new(false),
             versioned_edits: AtomicBool::new(false),
+            file_rename_edits: AtomicBool::new(false),
         }
     }
 
@@ -79,7 +82,7 @@ impl Backend {
     ) -> Result<(Vec<std::path::PathBuf>, HashMap<Uri, Arc<Document>>)> {
         let (roots, mut documents) = self.workspace_disk_documents().await?;
         for (uri, snapshot) in self.documents.read().unwrap().iter() {
-            documents.insert(uri.clone(), snapshot.doc.clone());
+            overlay_document(&mut documents, uri, snapshot.doc.clone());
         }
         Ok((roots, documents))
     }
@@ -116,7 +119,7 @@ impl Backend {
             .collect();
         open.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
         for (uri, snapshot) in &open {
-            documents.insert(uri.clone(), snapshot.doc.clone());
+            overlay_document(&mut documents, uri, snapshot.doc.clone());
         }
         let batches = tokio::task::spawn_blocking(move || {
             let mut resolver = Resolver::new(
@@ -149,19 +152,19 @@ impl Backend {
         Ok(())
     }
 
-    async fn rename_context(&self) -> Result<(Rename, HashMap<Uri, Arc<Snapshot>>)> {
+    async fn edit_context(
+        &self,
+    ) -> Result<(HashMap<String, Arc<Document>>, HashMap<Uri, Arc<Snapshot>>)> {
         let (_, mut documents) = self.workspace_disk_documents().await?;
         let open = self.documents.read().unwrap().clone();
         for (uri, snapshot) in &open {
-            documents.insert(uri.clone(), snapshot.doc.clone());
+            overlay_document(&mut documents, uri, snapshot.doc.clone());
         }
         Ok((
-            Rename::new(
-                documents
-                    .into_iter()
-                    .map(|(uri, doc)| (uri.as_str().to_string(), doc))
-                    .collect(),
-            ),
+            documents
+                .into_iter()
+                .map(|(uri, doc)| (uri.as_str().to_string(), doc))
+                .collect(),
             open,
         ))
     }
@@ -176,6 +179,62 @@ impl Backend {
             return Err(Error::content_modified());
         }
         Ok(())
+    }
+
+    fn workspace_edit(
+        &self,
+        edits: HashMap<String, FileEdits>,
+        open: &HashMap<Uri, Arc<Snapshot>>,
+        resource: Option<RenameFile>,
+    ) -> Result<WorkspaceEdit> {
+        let mut files: Vec<_> = edits.into_iter().collect();
+        files.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut changes = HashMap::new();
+        let mut document_changes = Vec::new();
+        for (uri, file) in files {
+            let uri: Uri = uri.parse().map_err(|_| Error::internal_error())?;
+            let edits: Vec<_> = file
+                .edits
+                .into_iter()
+                .map(|edit| TextEdit {
+                    range: range(&file.document, edit.range),
+                    new_text: edit.text,
+                })
+                .collect();
+            if self.versioned_edits.load(Ordering::Relaxed) {
+                document_changes.push(TextDocumentEdit {
+                    text_document: OptionalVersionedTextDocumentIdentifier {
+                        version: open.get(&uri).map(|s| s.version),
+                        uri,
+                    },
+                    edits: edits.into_iter().map(OneOf::Left).collect(),
+                });
+            } else {
+                changes.insert(uri, edits);
+            }
+        }
+        Ok(if let Some(resource) = resource {
+            // All edits address the old URIs and must precede the file move.
+            let mut operations: Vec<_> = document_changes
+                .into_iter()
+                .map(DocumentChangeOperation::Edit)
+                .collect();
+            operations.push(DocumentChangeOperation::Op(ResourceOp::Rename(resource)));
+            WorkspaceEdit {
+                document_changes: Some(DocumentChanges::Operations(operations)),
+                ..Default::default()
+            }
+        } else if self.versioned_edits.load(Ordering::Relaxed) {
+            WorkspaceEdit {
+                document_changes: Some(DocumentChanges::Edits(document_changes)),
+                ..Default::default()
+            }
+        } else {
+            WorkspaceEdit {
+                changes: Some(changes),
+                ..Default::default()
+            }
+        })
     }
 }
 
@@ -274,6 +333,18 @@ fn uri_path(uri: &Uri) -> Option<std::path::PathBuf> {
     url::Url::parse(uri.as_str()).ok()?.to_file_path().ok()
 }
 
+/// Buffer URIs can spell the same file differently, e.g. '(' versus '%28'.
+/// Remove the disk URI before inserting the authoritative buffer snapshot.
+fn overlay_document(documents: &mut HashMap<Uri, Arc<Document>>, uri: &Uri, doc: Arc<Document>) {
+    if let Some(disk_uri) = uri_path(uri)
+        .and_then(|path| url::Url::from_file_path(path).ok())
+        .and_then(|uri| uri.as_str().parse::<Uri>().ok())
+    {
+        documents.remove(&disk_uri);
+    }
+    documents.insert(uri.clone(), doc);
+}
+
 /// Link destinations use the source document's directory as their base.
 fn heading_destination(base: &Uri, target: &Uri, anchor: &str) -> Option<String> {
     const ANCHOR: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
@@ -306,6 +377,76 @@ fn snippet_escape(text: &str) -> String {
 }
 
 impl LanguageServer for Backend {
+    async fn will_rename_files(&self, params: RenameFilesParams) -> Result<Option<WorkspaceEdit>> {
+        let moves = Moves::new(params.files.into_iter().map(|f| (f.old_uri, f.new_uri)))
+            .map_err(Error::invalid_params)?;
+        let (documents, open) = self.edit_context().await?;
+        let edits = tokio::task::spawn_blocking(move || moves.plan(documents))
+            .await
+            .map_err(|_| Error::internal_error())?
+            .map_err(Error::invalid_params)?;
+        self.check_rename_snapshots(&open)?;
+        Ok(Some(self.workspace_edit(edits, &open, None)?))
+    }
+
+    async fn did_rename_files(&self, params: RenameFilesParams) {
+        let moves = match Moves::new(params.files.into_iter().map(|f| (f.old_uri, f.new_uri))) {
+            Ok(moves) => moves,
+            Err(error) => {
+                self.client.log_message(MessageType::WARNING, error).await;
+                return;
+            }
+        };
+        let mut cleared = Vec::new();
+        {
+            let mut documents = self.documents.write().unwrap();
+            let mut migrated = Vec::new();
+            let previous = std::mem::take(&mut *documents);
+            for (uri, snapshot) in previous {
+                let new_uri = url::Url::parse(uri.as_str())
+                    .ok()
+                    .map(|u| moves.relocate(&u))
+                    .and_then(|u| u.as_str().parse::<Uri>().ok())
+                    .unwrap_or_else(|| uri.clone());
+                if uri == new_uri {
+                    documents.insert(uri, snapshot);
+                } else {
+                    cleared.push(uri);
+                    migrated.push((new_uri, snapshot));
+                }
+            }
+            for (uri, snapshot) in migrated {
+                // A buffer already opened at its new URI is authoritative.
+                let path = uri_path(&uri);
+                if !documents
+                    .keys()
+                    .any(|current| *current == uri || path.is_some() && uri_path(current) == path)
+                {
+                    documents.insert(uri, snapshot);
+                }
+            }
+        }
+        {
+            let mut workspace = self.workspace.lock().await;
+            for folder in &mut workspace.folders {
+                if let Some(path) = url::Url::from_file_path(&*folder)
+                    .ok()
+                    .map(|uri| moves.relocate(&uri))
+                    .and_then(|uri| uri.to_file_path().ok())
+                {
+                    *folder = path;
+                }
+            }
+        }
+        {
+            let _guard = self.diagnostics.lock().await;
+            for uri in cleared {
+                self.client.publish_diagnostics(uri, vec![], None).await;
+            }
+        }
+        let _ = self.refresh_diagnostics().await;
+    }
+
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         self.watch_files.store(
             params
@@ -347,6 +488,31 @@ impl LanguageServer for Backend {
                 .unwrap_or(false),
             Ordering::Relaxed,
         );
+        self.file_rename_edits.store(
+            self.versioned_edits.load(Ordering::Relaxed)
+                && params
+                    .capabilities
+                    .workspace
+                    .as_ref()
+                    .and_then(|w| w.workspace_edit.as_ref())
+                    .and_then(|e| e.resource_operations.as_ref())
+                    .is_some_and(|ops| ops.contains(&ResourceOperationKind::Rename)),
+            Ordering::Relaxed,
+        );
+        let file_operations = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|w| w.file_operations.as_ref());
+        let file_filter = || FileOperationRegistrationOptions {
+            filters: vec![FileOperationFilter {
+                scheme: Some("file".into()),
+                pattern: FileOperationPattern {
+                    glob: "**/*".into(),
+                    ..Default::default()
+                },
+            }],
+        };
         self.snippets.store(
             text.and_then(|t| t.completion.as_ref())
                 .and_then(|c| c.completion_item.as_ref())
@@ -375,11 +541,21 @@ impl LanguageServer for Backend {
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
                 workspace: Some(WorkspaceServerCapabilities {
+                    file_operations: Some(WorkspaceFileOperationsServerCapabilities {
+                        will_rename: file_operations
+                            .and_then(|f| f.will_rename)
+                            .unwrap_or(false)
+                            .then(file_filter),
+                        did_rename: file_operations
+                            .and_then(|f| f.did_rename)
+                            .unwrap_or(false)
+                            .then(file_filter),
+                        ..Default::default()
+                    }),
                     workspace_folders: Some(WorkspaceFoldersServerCapabilities {
                         supported: Some(true),
                         change_notifications: Some(OneOf::Left(true)),
                     }),
-                    ..Default::default()
                 }),
                 document_link_provider: Some(DocumentLinkOptions {
                     resolve_provider: Some(false),
@@ -666,79 +842,98 @@ impl LanguageServer for Backend {
         &self,
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
-        let (mut rename, open) = self.rename_context().await?;
+        let (documents, open) = self.edit_context().await?;
         let source = open
             .get(&params.text_document.uri)
             .ok_or_else(|| Error::invalid_params("Document is not open"))?;
         let at = offset(&source.doc, params.position)?;
         let uri = params.text_document.uri.as_str().to_string();
-        let target = tokio::task::spawn_blocking(move || rename.target(&uri, at))
-            .await
-            .map_err(|_| Error::internal_error())?;
+        let source_doc = source.doc.clone();
+        let can_move = self.file_rename_edits.load(Ordering::Relaxed);
+        let target = tokio::task::spawn_blocking(move || {
+            let mut rename = Rename::new(documents);
+            rename
+                .target(&uri, at)
+                .map(|t| (t.selection, t.placeholder))
+                .or_else(|| {
+                    can_move
+                        .then(|| moves::link_path(&source_doc, &uri, at))
+                        .flatten()
+                        .map(|t| (t.selection, t.placeholder))
+                })
+        })
+        .await
+        .map_err(|_| Error::internal_error())?;
         self.check_rename_snapshots(&open)?;
-        Ok(
-            target.map(|target| PrepareRenameResponse::RangeWithPlaceholder {
-                range: range(&source.doc, target.selection),
-                placeholder: target.placeholder,
-            }),
-        )
+        Ok(target.map(
+            |(selection, placeholder)| PrepareRenameResponse::RangeWithPlaceholder {
+                range: range(&source.doc, selection),
+                placeholder,
+            },
+        ))
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let (mut rename, open) = self.rename_context().await?;
+        let (documents, open) = self.edit_context().await?;
         let p = params.text_document_position;
         let source = open
             .get(&p.text_document.uri)
             .ok_or_else(|| Error::invalid_params("Document is not open"))?;
         let at = offset(&source.doc, p.position)?;
         let uri = p.text_document.uri.as_str().to_string();
-        let edits = tokio::task::spawn_blocking(move || {
-            let target = rename
-                .target(&uri, at)
-                .ok_or_else(|| "No heading or explicit ID at this position".to_string())?;
-            rename.plan(target, &params.new_name)
+        let source_doc = source.doc.clone();
+        let can_move = self.file_rename_edits.load(Ordering::Relaxed);
+        let (edits, resource) = tokio::task::spawn_blocking(move || {
+            let mut rename = Rename::new(documents.clone());
+            if let Some(target) = rename.target(&uri, at) {
+                return rename
+                    .plan(target, &params.new_name)
+                    .map(|edits| (edits, None));
+            }
+            let target = moves::link_path(&source_doc, &uri, at)
+                .ok_or("No heading, explicit ID or existing local link path at this position")?;
+            if !can_move {
+                return Err(
+                    "File rename requires documentChanges and the rename resource operation".into(),
+                );
+            }
+            let new_uri = moves::destination(&uri, &params.new_name)?;
+            if new_uri.to_file_path() == target.uri.to_file_path() {
+                return Ok((HashMap::new(), None));
+            }
+            let path = new_uri
+                .to_file_path()
+                .map_err(|_| "Cannot resolve destination file URI")?;
+            match std::fs::symlink_metadata(&path) {
+                Ok(_) => return Err("The destination already exists".into()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(format!("Cannot inspect destination: {e}")),
+            }
+            if !path.parent().is_some_and(|parent| parent.is_dir()) {
+                return Err("The destination parent directory does not exist".into());
+            }
+            let moves = Moves::new([(target.uri.to_string(), new_uri.to_string())])?;
+            let edits = moves.plan(documents)?;
+            let resource = RenameFile {
+                old_uri: target
+                    .uri
+                    .as_str()
+                    .parse()
+                    .map_err(|_| "Invalid source file URI")?,
+                new_uri: new_uri
+                    .as_str()
+                    .parse()
+                    .map_err(|_| "Invalid destination file URI")?,
+                options: None,
+                annotation_id: None,
+            };
+            Ok((edits, Some(resource)))
         })
         .await
         .map_err(|_| Error::internal_error())?
         .map_err(Error::invalid_params)?;
         self.check_rename_snapshots(&open)?;
-        let mut files: Vec<_> = edits.into_iter().collect();
-        files.sort_by(|a, b| a.0.cmp(&b.0));
-        let mut changes = HashMap::new();
-        let mut document_changes = Vec::new();
-        for (uri, file) in files {
-            let uri: Uri = uri.parse().map_err(|_| Error::internal_error())?;
-            let edits: Vec<_> = file
-                .edits
-                .into_iter()
-                .map(|edit| TextEdit {
-                    range: range(&file.document, edit.range),
-                    new_text: edit.text,
-                })
-                .collect();
-            if self.versioned_edits.load(Ordering::Relaxed) {
-                document_changes.push(TextDocumentEdit {
-                    text_document: OptionalVersionedTextDocumentIdentifier {
-                        version: open.get(&uri).map(|s| s.version),
-                        uri,
-                    },
-                    edits: edits.into_iter().map(OneOf::Left).collect(),
-                });
-            } else {
-                changes.insert(uri, edits);
-            }
-        }
-        Ok(Some(if self.versioned_edits.load(Ordering::Relaxed) {
-            WorkspaceEdit {
-                document_changes: Some(DocumentChanges::Edits(document_changes)),
-                ..Default::default()
-            }
-        } else {
-            WorkspaceEdit {
-                changes: Some(changes),
-                ..Default::default()
-            }
-        }))
+        Ok(Some(self.workspace_edit(edits, &open, resource)?))
     }
 
     async fn document_link(&self, params: DocumentLinkParams) -> Result<Option<Vec<DocumentLink>>> {

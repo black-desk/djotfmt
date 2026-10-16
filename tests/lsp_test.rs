@@ -92,6 +92,16 @@ impl Server {
         }
         let result = server.request("initialize", initialization);
         assert_eq!(result["capabilities"]["workspaceSymbolProvider"], true);
+        for operation in ["willRename", "didRename"] {
+            let supported =
+                overrides["capabilities"]["workspace"]["fileOperations"][operation] == true;
+            let registration = &result["capabilities"]["workspace"]["fileOperations"][operation];
+            assert_eq!(registration.is_object(), supported);
+            if supported {
+                assert_eq!(registration["filters"][0]["scheme"], "file");
+                assert_eq!(registration["filters"][0]["pattern"]["glob"], "**/*");
+            }
+        }
         assert_eq!(
             result["capabilities"]["renameProvider"]["prepareProvider"],
             true
@@ -1748,6 +1758,7 @@ fn apply_workspace_edit(
             .as_array()
             .expect("workspace edit")
             .iter()
+            .filter(|file| file.get("textDocument").is_some())
             .map(|file| {
                 (
                     file["textDocument"]["uri"].as_str().unwrap().to_string(),
@@ -2149,5 +2160,543 @@ fn stdio_rename_heading_replaces_nested_links_and_keeps_unresolved_references() 
         updated["file:///test.dj"],
         "# Renamed\n\n# Other\n\n[x][missing]\n\n[in](#Renamed)\n"
     );
+    server.shutdown();
+}
+
+fn file_operation_server(repo: &Repository, versioned: bool, resource_rename: bool) -> Server {
+    file_operation_server_at(repo, "", versioned, resource_rename)
+}
+
+fn file_operation_server_at(
+    repo: &Repository,
+    folder: &str,
+    versioned: bool,
+    resource_rename: bool,
+) -> Server {
+    Server::start_with_init(
+        true,
+        true,
+        None,
+        Some(json!([repo.folder(folder)])),
+        json!({
+            "capabilities":{"workspace":{
+                "fileOperations":{"willRename":true,"didRename":true},
+                "workspaceEdit":{"documentChanges":versioned,"resourceOperations":if resource_rename { vec!["rename"] } else { vec![] }}
+            }}
+        }),
+    )
+}
+
+fn file_move_params(files: &[(&str, &str)]) -> Value {
+    json!({"files":files.iter().map(|(old,new)| json!({"oldUri":old,"newUri":new})).collect::<Vec<_>>()})
+}
+
+fn write_edited_sources(files: &std::collections::HashMap<String, String>) {
+    for (uri, source) in files {
+        let path = url::Url::parse(uri).unwrap().to_file_path().unwrap();
+        std::fs::write(path, source).unwrap();
+    }
+}
+
+#[test]
+fn stdio_file_move_updates_incoming_outgoing_and_reference_destinations() {
+    let repo = Repository::new();
+    let target = "# Intro\n\n[related](related.dj#More) ![image](../assets/logo.png?size=1#frame) [self](guide.dj#Intro) [local](#Intro) [web](https://example.com/)\n";
+    let source = "[guide](docs/guide.dj?q=%2F#Intro) [ref][g] [broken](docs/guide.dj#missing)\n\n[g]: docs/guide.dj#Intro\n";
+    repo.write("docs/guide.dj", target);
+    repo.write("docs/related.dj", "# More\n");
+    repo.write("assets/logo.png", "image");
+    repo.write("current.dj", source);
+    std::fs::create_dir(repo.0.join("manual")).unwrap();
+    let uri = repo.uri("current.dj");
+    let old = repo.uri("docs/guide.dj");
+    let new = repo.uri("manual/guide(中).dj");
+    let mut server = file_operation_server(&repo, false, false);
+    open_uri(&mut server, &uri, source);
+    let params = file_move_params(&[(&old, &new)]);
+    let edit = server.request("workspace/willRenameFiles", params.clone());
+    assert!(edit["documentChanges"].is_null());
+    let updated = apply_workspace_edit(&edit, &[(&uri, source), (&old, target)]);
+    let path = "manual/guide%28%E4%B8%AD%29.dj";
+    let expected_source = format!(
+        "[guide]({path}?q=%2F#Intro) [ref][g] [broken]({path}#missing)\n\n[g]: {path}#Intro\n"
+    );
+    assert_eq!(updated[&uri], expected_source);
+    let expected_target = "# Intro\n\n[related](../docs/related.dj#More) ![image](../assets/logo.png?size=1#frame) [self](#Intro) [local](#Intro) [web](https://example.com/)\n";
+    assert_eq!(updated[&old], expected_target);
+    assert!(repo.0.join("docs/guide.dj").exists());
+    assert!(!repo.0.join("manual/guide(中).dj").exists());
+    write_edited_sources(&updated);
+    std::fs::rename(
+        repo.0.join("docs/guide.dj"),
+        repo.0.join("manual/guide(中).dj"),
+    )
+    .unwrap();
+    server.notify(
+        "textDocument/didChange",
+        json!({"textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":expected_source}]}),
+    );
+    server.notify("workspace/didRenameFiles", params);
+    open_uri(&mut server, &new, expected_target);
+    assert_eq!(server.diagnostics_for(&new)["diagnostics"], json!([]));
+    let location = definition_uri(
+        &mut server,
+        &uri,
+        &expected_source,
+        expected_source.find("manual/").unwrap(),
+    );
+    assert_eq!(
+        url::Url::parse(location["uri"].as_str().unwrap())
+            .unwrap()
+            .to_file_path()
+            .unwrap(),
+        repo.0.join("manual/guide(中).dj")
+    );
+    assert_eq!(location["range"]["start"]["line"], 0);
+    let related = definition_uri(
+        &mut server,
+        &new,
+        expected_target,
+        expected_target.find("../docs").unwrap(),
+    );
+    assert_eq!(related["uri"], repo.uri("docs/related.dj"));
+    server.shutdown();
+}
+
+#[test]
+fn stdio_folder_move_preserves_internal_links_and_unsaved_open_buffers() {
+    let repo = Repository::new();
+    repo.write("old/chapter.dj", "# Disk\n\n[out](../outside.dj#Out)\n");
+    repo.write("old/peer.dj", "# Peer\n");
+    repo.write("old/image.png", "image");
+    repo.write("older/chapter.dj", "# Unchanged\n");
+    repo.write("outside.dj", "# Out\n");
+    let target = "# Draft\n\n[peer](peer.dj#Peer) ![img](image.png) [out](../outside.dj#Out)\n";
+    let source =
+        "[chapter](old/chapter.dj#Draft) [folder](old/) [sibling](older/chapter.dj#Unchanged)";
+    let uri = repo.uri("current.dj");
+    let old_doc = repo.uri("old/chapter.dj");
+    let new_doc = repo.uri("nested/new/chapter.dj");
+    let old_folder = repo.uri("old");
+    let new_folder = repo.uri("nested/new");
+    let mut server = file_operation_server_at(&repo, "old", true, false);
+    open_uri(&mut server, &old_doc, target);
+    assert_eq!(server.diagnostics_for(&old_doc)["diagnostics"], json!([]));
+    open_uri(&mut server, &uri, source);
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    let params = file_move_params(&[(&old_folder, &new_folder)]);
+    let edit = server.request("workspace/willRenameFiles", params.clone());
+    for file in edit["documentChanges"].as_array().unwrap() {
+        assert_eq!(file["textDocument"]["version"], 1);
+    }
+    let updated = apply_workspace_edit(&edit, &[(&uri, source), (&old_doc, target)]);
+    let expected_target =
+        "# Draft\n\n[peer](peer.dj#Peer) ![img](image.png) [out](../../outside.dj#Out)\n";
+    let expected_source = "[chapter](nested/new/chapter.dj#Draft) [folder](nested/new/) [sibling](older/chapter.dj#Unchanged)";
+    assert_eq!(updated[&old_doc], expected_target);
+    assert_eq!(updated[&uri], expected_source);
+    // Apply buffer edits without saving: didRenameFiles must retain the draft,
+    // not replace it with the different on-disk heading at the new location.
+    server.notify("textDocument/didChange", json!({"textDocument":{"uri":old_doc,"version":2},"contentChanges":[{"text":expected_target}]}));
+    server.notify(
+        "textDocument/didChange",
+        json!({"textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":expected_source}]}),
+    );
+    std::fs::create_dir(repo.0.join("nested")).unwrap();
+    std::fs::rename(repo.0.join("old"), repo.0.join("nested/new")).unwrap();
+    server.notify("workspace/didRenameFiles", params);
+    let cleared = loop {
+        let diagnostics = server.diagnostics_for(&old_doc);
+        if diagnostics["version"].is_null() {
+            break diagnostics;
+        }
+    };
+    assert_eq!(cleared["diagnostics"], json!([]));
+    let diagnostics = server.diagnostics_for(&new_doc);
+    assert_eq!(diagnostics["version"], 2);
+    assert_eq!(diagnostics["diagnostics"], json!([]));
+    let location = definition_uri(
+        &mut server,
+        &uri,
+        expected_source,
+        expected_source.find("nested/").unwrap(),
+    );
+    assert_eq!(location["uri"], new_doc);
+    assert_eq!(range_text(expected_target, &location["range"]), "Draft");
+    assert!(symbol_names(&mut server).contains(&"Draft".to_string()));
+    assert!(symbol_names(&mut server).contains(&"Peer".to_string()));
+    assert!(!symbol_names(&mut server).contains(&"Disk".to_string()));
+    server.notify(
+        "textDocument/didClose",
+        json!({"textDocument":{"uri":old_doc}}),
+    );
+    assert_eq!(
+        definition_uri(
+            &mut server,
+            &uri,
+            expected_source,
+            expected_source.find("nested/").unwrap()
+        )["uri"],
+        new_doc
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_batch_file_moves_use_original_targets_without_chaining() {
+    let repo = Repository::new();
+    let a = "# A\n\n[b](b.dj#B) [self](#A) [file](a.dj)\n";
+    let b = "# B\n\n[a](a.dj#A)\n";
+    let source = "[a](a.dj#A) [b](b.dj#B)";
+    repo.write("a.dj", a);
+    repo.write("b.dj", b);
+    repo.write("current.dj", source);
+    let a_uri = repo.uri("a.dj");
+    let b_uri = repo.uri("b.dj");
+    let c_uri = repo.uri("c.dj");
+    let uri = repo.uri("current.dj");
+    let mut server = file_operation_server(&repo, true, false);
+    let params = file_move_params(&[(&a_uri, &b_uri), (&b_uri, &c_uri)]);
+    let edit = server.request("workspace/willRenameFiles", params);
+    let updated = apply_workspace_edit(&edit, &[(&a_uri, a), (&b_uri, b), (&uri, source)]);
+    assert_eq!(updated[&uri], "[a](b.dj#A) [b](c.dj#B)");
+    assert_eq!(
+        updated[&a_uri],
+        "# A\n\n[b](c.dj#B) [self](#A) [file](b.dj)\n"
+    );
+    assert_eq!(updated[&b_uri], "# B\n\n[a](b.dj#A)\n");
+    for file in edit["documentChanges"].as_array().unwrap() {
+        assert!(file["textDocument"]["version"].is_null());
+    }
+    server.shutdown();
+}
+
+#[test]
+fn stdio_rename_link_path_proposes_text_edits_before_resource_move() {
+    let repo = Repository::new();
+    let target = "# Intro\n\n[out](../other.dj#Other)\n";
+    let source = "😀 [here](docs/old.dj?q=1#Intro)\r\n";
+    repo.write("docs/old.dj", target);
+    repo.write("other.dj", "# Other\n");
+    std::fs::create_dir_all(repo.0.join("deep/nest")).unwrap();
+    let uri = repo.uri("current.dj");
+    let old = repo.uri("docs/old.dj");
+    let new = repo.uri("deep/nest/new.dj");
+    let mut server = file_operation_server(&repo, true, true);
+    open_uri(&mut server, &uri, source);
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    let at = source.find("docs/").unwrap();
+    let prepare = prepare_rename(&mut server, &uri, source, at);
+    assert_eq!(prepare["placeholder"], "docs/old.dj");
+    assert_eq!(range_text(source, &prepare["range"]), "docs/old.dj");
+    let response = rename_request(&mut server, &uri, source, at, "deep/nest/new.dj");
+    assert!(response.get("error").is_none(), "{response}");
+    let operations = response["result"]["documentChanges"].as_array().unwrap();
+    let resource = operations.last().unwrap();
+    assert_eq!(resource["kind"], "rename");
+    assert_eq!(resource["oldUri"], old);
+    assert_eq!(resource["newUri"], new);
+    assert!(operations[..operations.len() - 1]
+        .iter()
+        .all(|op| op.get("textDocument").is_some()));
+    let updated = apply_workspace_edit(&response["result"], &[(&uri, source), (&old, target)]);
+    assert_eq!(updated[&uri], "😀 [here](deep/nest/new.dj?q=1#Intro)\r\n");
+    assert_eq!(updated[&old], "# Intro\n\n[out](../../other.dj#Other)\n");
+    assert!(repo.0.join("docs/old.dj").exists());
+    write_edited_sources(&updated);
+    std::fs::rename(repo.0.join("docs/old.dj"), repo.0.join("deep/nest/new.dj")).unwrap();
+    server.notify(
+        "textDocument/didChange",
+        json!({"textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":updated[&uri]}]}),
+    );
+    server.notify(
+        "workspace/didRenameFiles",
+        file_move_params(&[(&old, &new)]),
+    );
+    assert_eq!(
+        definition_uri(&mut server, &uri, &updated[&uri], at)["uri"],
+        new
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_rename_asset_path_at_reference_definition_preserves_suffix() {
+    let repo = Repository::new();
+    repo.write("img/a.png", "image");
+    std::fs::create_dir(repo.0.join("icons")).unwrap();
+    let source = "![pic][logo]\n\n[logo]: img/a.png?size=1#frame\n";
+    let uri = repo.uri("current.dj");
+    let mut server = file_operation_server(&repo, true, true);
+    open_uri(&mut server, &uri, source);
+    let at = source.find("img/").unwrap();
+    assert_eq!(
+        prepare_rename(&mut server, &uri, source, at)["placeholder"],
+        "img/a.png"
+    );
+    let response = rename_request(&mut server, &uri, source, at, "icons/新 (1).png");
+    assert!(response.get("error").is_none(), "{response}");
+    let updated = apply_workspace_edit(&response["result"], &[(&uri, source)]);
+    assert_eq!(
+        updated[&uri],
+        "![pic][logo]\n\n[logo]: icons/%E6%96%B0%20%281%29.png?size=1#frame\n"
+    );
+    let operations = response["result"]["documentChanges"].as_array().unwrap();
+    assert_eq!(operations.last().unwrap()["oldUri"], repo.uri("img/a.png"));
+    assert_eq!(
+        operations.last().unwrap()["newUri"],
+        repo.uri("icons/新 (1).png")
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_file_move_reads_explicit_ignored_target_and_preserves_absolute_links() {
+    let repo = Repository::new();
+    repo.write(".gitignore", "ignored.dj\n");
+    let target = "# Hidden\n\n[out](other.dj#Other)\n";
+    repo.write("ignored.dj", target);
+    repo.write("other.dj", "# Other\n");
+    let old = repo.uri("ignored.dj");
+    let new = repo.uri("nested/new.dj");
+    let absolute_path = repo.0.join("ignored.dj").to_string_lossy().to_string();
+    let source = format!("[uri]({old}?q=1#Hidden) [root]({absolute_path}#Hidden)");
+    repo.write("current.dj", &source);
+    let uri = repo.uri("current.dj");
+    let mut server = file_operation_server(&repo, false, false);
+    let edit = server.request(
+        "workspace/willRenameFiles",
+        file_move_params(&[(&old, &new)]),
+    );
+    let updated = apply_workspace_edit(&edit, &[(&uri, &source), (&old, target)]);
+    let new_path = repo.0.join("nested/new.dj").to_string_lossy().to_string();
+    assert_eq!(
+        updated[&uri],
+        format!("[uri]({new}?q=1#Hidden) [root]({new_path}#Hidden)")
+    );
+    assert_eq!(updated[&old], "# Hidden\n\n[out](../other.dj#Other)\n");
+    server.shutdown();
+}
+
+#[test]
+fn stdio_file_moves_reject_conflicts_invalid_uris_and_unsupported_link_rename() {
+    let repo = Repository::new();
+    repo.write("a.dj", "# A\n");
+    repo.write("b.dj", "# B\n");
+    let uri = repo.uri("current.dj");
+    let a = repo.uri("a.dj");
+    let b = repo.uri("b.dj");
+    let c = repo.uri("c.dj");
+    let mut server = file_operation_server(&repo, false, false);
+    for files in [
+        vec![(a.as_str(), b.as_str())],
+        vec![(a.as_str(), c.as_str()), (b.as_str(), c.as_str())],
+        vec![("invalid", c.as_str())],
+        vec![(a.as_str(), "https://example.com/new.dj")],
+        vec![(a.as_str(), "file:///tmp/new.dj#anchor")],
+        vec![(a.as_str(), "file:///tmp/new.dj?q=1")],
+    ] {
+        let response = server.response("workspace/willRenameFiles", file_move_params(&files));
+        assert_eq!(response["error"]["code"], -32602, "{response}");
+    }
+    let folder = repo.uri("dir");
+    let child = repo.uri("dir/a.dj");
+    let descendant = repo.uri("dir/nested");
+    for files in [
+        vec![(folder.as_str(), descendant.as_str())],
+        vec![(folder.as_str(), c.as_str()), (child.as_str(), b.as_str())],
+    ] {
+        assert_eq!(
+            server.response("workspace/willRenameFiles", file_move_params(&files))["error"]["code"],
+            -32602
+        );
+    }
+    let source = "[a](a.dj#A)";
+    open_uri(&mut server, &uri, source);
+    assert!(prepare_rename(&mut server, &uri, source, source.find("a.dj").unwrap()).is_null());
+    let response = rename_request(
+        &mut server,
+        &uri,
+        source,
+        source.find("a.dj").unwrap(),
+        "c.dj",
+    );
+    assert_eq!(response["error"]["code"], -32602);
+    assert_eq!(
+        prepare_rename(&mut server, &uri, source, source.find("#A").unwrap() + 1)["placeholder"],
+        "A"
+    );
+    let empty = server.request("workspace/willRenameFiles", file_move_params(&[(&a, &a)]));
+    assert_eq!(empty["changes"], json!({}));
+    server.shutdown();
+    let mut server = file_operation_server(&repo, true, true);
+    open_uri(&mut server, &uri, source);
+    for name in [
+        "",
+        " new.dj",
+        "new.dj#anchor",
+        "new.dj?q=1",
+        "https://example.com/new.dj",
+        "missing/child.dj",
+        "b.dj",
+    ] {
+        assert_eq!(
+            rename_request(
+                &mut server,
+                &uri,
+                source,
+                source.find("a.dj").unwrap(),
+                name
+            )["error"]["code"],
+            -32602,
+            "{name}"
+        );
+    }
+    let unchanged = rename_request(
+        &mut server,
+        &uri,
+        source,
+        source.find("a.dj").unwrap(),
+        "a.dj",
+    );
+    assert_eq!(unchanged["result"]["documentChanges"], json!([]));
+    server.shutdown();
+}
+
+#[test]
+fn stdio_folder_link_rename_keeps_equivalent_encoded_internal_paths() {
+    let repo = Repository::new();
+    let inner = "# Src\n\n[peer](peer%28x%29.dj#Peer)\n";
+    repo.write("old.dj/src.dj", inner);
+    repo.write("old.dj/peer(x).dj", "# Peer\n");
+    std::fs::create_dir(repo.0.join("nested")).unwrap();
+    let source = "[folder](old.dj/) [peer](old.dj/peer%28x%29.dj#Peer)";
+    let uri = repo.uri("current.dj");
+    let mut server = file_operation_server(&repo, true, true);
+    open_uri(&mut server, &uri, source);
+    let at = source.find("old.dj/").unwrap();
+    let response = rename_request(&mut server, &uri, source, at, "nested/new");
+    assert!(response.get("error").is_none(), "{response}");
+    let updated = apply_workspace_edit(&response["result"], &[(&uri, source)]);
+    assert_eq!(updated.len(), 1);
+    assert_eq!(
+        updated[&uri],
+        "[folder](nested/new/) [peer](nested/new/peer%28x%29.dj#Peer)"
+    );
+    let resource = response["result"]["documentChanges"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(resource["kind"], "rename");
+    assert_eq!(resource["oldUri"], format!("{}/", repo.uri("old.dj")));
+    assert_eq!(resource["newUri"], repo.uri("nested/new"));
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("old.dj/src.dj")).unwrap(),
+        inner
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_file_move_keeps_newly_opened_destination_buffer_authoritative() {
+    let repo = Repository::new();
+    repo.write("old.dj", "# Disk\n");
+    let old = repo.uri("old.dj");
+    let disk_uri = repo.uri("new(x).dj");
+    let new = disk_uri.replace('(', "%28").replace(')', "%29");
+    let mut server = file_operation_server(&repo, true, false);
+    open_uri(&mut server, &old, "# Older draft\n");
+    assert_eq!(server.diagnostics_for(&old)["diagnostics"], json!([]));
+    std::fs::rename(repo.0.join("old.dj"), repo.0.join("new(x).dj")).unwrap();
+    server.notify("textDocument/didOpen", json!({"textDocument":{"uri":new,"languageId":"djot","version":7,"text":"# Newer draft\n"}}));
+    let params = file_move_params(&[(&old, &disk_uri)]);
+    server.notify("workspace/didRenameFiles", params);
+    let cleared = loop {
+        let diagnostics = server.diagnostics_for(&old);
+        if diagnostics["version"].is_null() {
+            break diagnostics;
+        }
+    };
+    assert_eq!(cleared["diagnostics"], json!([]));
+    assert_eq!(
+        server.request(
+            "textDocument/documentSymbol",
+            json!({"textDocument":{"uri":new}})
+        )[0]["name"],
+        "Newer draft"
+    );
+    assert_eq!(
+        server.response(
+            "textDocument/documentSymbol",
+            json!({"textDocument":{"uri":old}})
+        )["error"]["code"],
+        -32602
+    );
+    assert!(!symbol_names(&mut server).contains(&"Older draft".to_string()));
+    assert!(!symbol_names(&mut server).contains(&"Disk".to_string()));
+    // Invalid notifications leave the active buffers intact.
+    server.notify(
+        "workspace/didRenameFiles",
+        file_move_params(&[("invalid", &new)]),
+    );
+    assert_eq!(
+        server.request(
+            "textDocument/documentSymbol",
+            json!({"textDocument":{"uri":new}})
+        )[0]["name"],
+        "Newer draft"
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_file_move_rejects_unreadable_targets_but_uses_unsaved_override() {
+    let repo = Repository::new();
+    repo.write(".gitignore", "bad.dj\n");
+    std::fs::write(repo.0.join("bad.dj"), [0xff, 0xfe]).unwrap();
+    repo.write("other.dj", "# Other\n");
+    let old = repo.uri("bad.dj");
+    let new = repo.uri("nested/new.dj");
+    let mut server = file_operation_server(&repo, true, false);
+    let params = file_move_params(&[(&old, &new)]);
+    let response = server.response("workspace/willRenameFiles", params.clone());
+    assert_eq!(response["error"]["code"], -32602);
+    assert!(response["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Cannot read moved Djot file"));
+    let target = "# Draft\n\n[out](other.dj#Other)\n";
+    open_uri(&mut server, &old, target);
+    assert_eq!(server.diagnostics_for(&old)["diagnostics"], json!([]));
+    let edit = server.request("workspace/willRenameFiles", params);
+    let updated = apply_workspace_edit(&edit, &[(&old, target)]);
+    assert_eq!(updated[&old], "# Draft\n\n[out](../other.dj#Other)\n");
+    assert_eq!(edit["documentChanges"][0]["textDocument"]["version"], 1);
+    server.shutdown();
+}
+
+#[test]
+fn stdio_file_moves_update_absolute_links_in_non_file_buffers() {
+    let repo = Repository::new();
+    let old = repo.uri("ghost.dj");
+    let new = repo.uri("moved.dj");
+    let source = "[missing](ghost.dj#anchor) [remote](file://other-host/share/a.png) [invalid](https://[invalid])";
+    let uri = repo.uri("current.dj");
+    repo.write("current.dj", source);
+    let draft = format!("# Draft\n\n[file]({old}#anchor) [local](#Draft)\n");
+    let mut server = file_operation_server(&repo, false, false);
+    open_uri(&mut server, "untitled:draft", &draft);
+    let edit = server.request(
+        "workspace/willRenameFiles",
+        file_move_params(&[(&old, &new)]),
+    );
+    let updated = apply_workspace_edit(&edit, &[(&uri, source), ("untitled:draft", &draft)]);
+    assert_eq!(updated[&uri], "[missing](moved.dj#anchor) [remote](file://other-host/share/a.png) [invalid](https://[invalid])");
+    assert_eq!(
+        updated["untitled:draft"],
+        format!("# Draft\n\n[file]({new}#anchor) [local](#Draft)\n")
+    );
+    assert!(symbol_names(&mut server).contains(&"Draft".to_string()));
     server.shutdown();
 }
