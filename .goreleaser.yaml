@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: 2026 Chen Linxuan <me@black-desk.cn>
+#
+# SPDX-License-Identifier: MIT
+
+version: 2
+
+# Keep release artifacts out of the crate published by the next workflow step.
+dist: target/goreleaser
+
+before:
+  hooks:
+    - cargo install --locked cargo-zigbuild
+
+builds:
+  - id: djotfmt
+    builder: rust
+    binary: djotfmt
+    flags:
+      - --release
+      - --locked
+      - --bin=djotfmt
+    targets: &targets
+      - x86_64-unknown-linux-gnu
+      - aarch64-unknown-linux-gnu
+      - x86_64-apple-darwin
+      - aarch64-apple-darwin
+
+  - id: djotls
+    builder: rust
+    binary: djotls
+    flags:
+      - --release
+      - --locked
+      - --bin=djotls
+    targets: *targets
+
+archives:
+  - ids:
+      - djotfmt
+      - djotls
+
+release:
+  prerelease: auto
