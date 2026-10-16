@@ -59,9 +59,15 @@ above for the server's trigger characters. Try `[`, `[text][`, `[^`, or
 a completion plugin, keep its setup and omit `vim.lsp.completion.enable`
 to avoid running two completion UIs.
 
-`gd` on a reference link goes to its label definition in the current
-file. Opening the destination file is a separate `documentLink` operation;
-Neovim does not provide a built-in `vim.lsp.buf.document_link()` action.
+`gd` on an inline link or a reference-definition destination opens the
+local target file at its heading or explicit anchor. Without a fragment,
+it goes to the start of the file. On a reference link's label, `gd` first
+goes to the label definition in the current file; use it again on that
+definition's destination to follow the link. The text part of a reference
+link can also navigate directly to its destination.
+
+External URLs remain available through `documentLink`. Neovim does not
+provide a built-in `vim.lsp.buf.document_link()` action.
 For an optional `<leader>lo` mapping, put the following function inside
 `on_attach`, after the other `map` calls:
 
@@ -101,7 +107,7 @@ end, 'Djot: open link')
 The mapping opens local files in Neovim and delegates external URLs to
 `vim.ui.open`. It opens cross-file links at the file level and ignores
 query strings and heading fragments for local files. Use `gd` for
-same-document anchors. Ordinary bracket pairing can be configured with
+same-document and cross-file anchors. Ordinary bracket pairing can be configured with
 your preferred Neovim pairing plugin.
 
 Enable your client's completion UI and snippet support to use link
@@ -130,6 +136,13 @@ The server supports:
 - Definition navigation and references within the open document for link
   labels, footnotes, explicit IDs and implicit heading references.
 
+- Cross-file definition navigation for local inline links, reference-link
+  text and reference-definition destinations. Relative paths resolve from
+  the current document; query strings are ignored for file lookup and
+  fragments locate explicit or generated anchors in `.dj` files. Target
+  files need not be open or included in the workspace index. Links without
+  a fragment (or with an empty fragment) navigate to the start of the file.
+
 - Completion for link labels after `[text][`, footnotes after `[^`, and
   anchors after `[text](#`.
 
@@ -153,10 +166,14 @@ The server supports:
   current document URI; Unicode and spaces are encoded as needed. Your
   client's open-link action can open the target even when it is not already
   open in the editor. External URLs are supported too. Cross-file query
-  strings and fragments are preserved; target headings are not analyzed.
-  Same-document anchors continue to use definition navigation.
+  strings and fragments are preserved in document-link targets. Use
+  definition navigation to jump to a local target's source position.
 
-- Warnings for unresolved references and duplicate definitions or IDs.
+- Errors for unresolved reference labels, footnotes, local anchors, missing
+  local target files and missing anchors in `.dj` targets. Duplicate
+  definitions and IDs remain warnings. Read failures are reported separately
+  as warnings, rather than as missing anchors. Other local file types are
+  checked for existence; external URLs are not fetched or validated.
 
 Completion suppresses suggestions in code, math and parsed attributes.
 Reference completions replace an existing closing bracket and can remove
@@ -179,16 +196,29 @@ files with the exact `.dj` extension. Submodules and symbolic-link files are
 not traversed. Standalone open documents remain supported without Git.
 
 Open buffers take precedence over disk snapshots, including unsaved changes.
-Closing a buffer restores disk content in workspace searches and completion. Clients with
-file-watching support receive a watcher registration; workspace-folder and
-file-change notifications refresh the index. Searches and destination completion also refresh disk state
-and Git ignore rules, so clients without file watching see current results.
+Closing a buffer restores disk content for searches, completion, navigation
+and diagnostics. Clients with file-watching support receive watcher
+registrations for `.dj` changes and file creation/deletion. Workspace-folder
+and file-change notifications refresh the index and open-document diagnostics.
+Opening, editing, saving or closing a buffer also rechecks links in all open
+documents. Without file watching, saving a buffer refreshes link diagnostics.
+Searches, destination completion and cross-file navigation refresh disk state
+and Git ignore rules on demand.
 Discovery and disk analysis run on a blocking worker; unchanged source reuses
 its parsed snapshot. Each refresh still enumerates and reads repository files.
 
-Navigation and references remain document-local. Cross-file anchor navigation,
-rename and filesystem-link validation are not yet supported. An incomplete
-delimiter alone is not reported as a syntax error.
+Link resolution reads local `.dj` targets outside the index on demand,
+including ignored files and paths outside the repository. Open-buffer content
+takes precedence, including new files that have not yet been saved. The same
+resolver supplies navigation and link validation, with a per-operation cache
+for target reads. Diagnostics are published for open documents and retain
+source versions; results for superseded snapshots are discarded. Revalidation
+currently checks all open documents rather than maintaining an incremental
+reverse dependency index. File reads and workspace link validation run on
+blocking workers.
+
+Find references remains document-local. Rename and file moves are not yet
+supported. An incomplete delimiter alone is not reported as a syntax error.
 
 Each document version is analyzed in full. Its snapshot retains source,
 parser events, headings, definitions, references and document links. Context is calculated
@@ -211,7 +241,10 @@ stdio protocol tests covering document analysis and position-encoding
 negotiation. Workspace stdio tests use temporary Git repositories to cover
 unopened files, ignore rules, duplicate titles, linked worktrees, open-buffer
 precedence, disk changes, workspace-folder changes, destination completion
-ordering, relative links and URI encoding. Parser conformance needs
+ordering, relative links and URI encoding. Further stdio tests cover cross-file
+navigation, exact error ranges, reference-label precedence, links inside
+headings, unsaved and out-of-index targets, disk changes and read failures.
+Parser conformance needs
 the pinned djot.js submodule and Node.js; its harness builds the reference when
 needed.
 The Rust server has no JavaScript runtime dependency.

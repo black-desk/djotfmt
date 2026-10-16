@@ -102,7 +102,8 @@ impl Server {
             true
         );
         assert_eq!(result["capabilities"]["positionEncoding"], "utf-16");
-        assert_eq!(result["capabilities"]["textDocumentSync"], 2);
+        assert_eq!(result["capabilities"]["textDocumentSync"]["change"], 2);
+        assert_eq!(result["capabilities"]["textDocumentSync"]["save"], true);
         assert_eq!(
             result["capabilities"]["documentLinkProvider"]["resolveProvider"],
             false
@@ -158,6 +159,15 @@ impl Server {
             self.notifications.push(msg);
         }
     }
+    fn diagnostics_for(&mut self, uri: &str) -> Value {
+        loop {
+            let params = self.diagnostics();
+            if params["uri"] == uri {
+                return params;
+            }
+        }
+    }
+
     fn document(&mut self, method: &str) -> Value {
         self.request(method, json!({"textDocument":{"uri":"file:///test.dj"}}))
     }
@@ -266,6 +276,7 @@ fn diagnostics_are_versioned_and_cleared_on_close() {
     server.open("[x][missing]");
     let params = server.diagnostics();
     assert_eq!(params["version"], 1);
+    assert_eq!(params["diagnostics"][0]["severity"], 1);
     assert_eq!(
         params["diagnostics"][0]["range"],
         json!({"start":{"line":0,"character":4},"end":{"line":0,"character":11}})
@@ -430,7 +441,7 @@ fn apply_edit(source: &str, edit: &Value) -> String {
 fn stdio_definition_and_reverse_references_cover_all_label_kinds() {
     let mut server = Server::new(true);
     let source =
-        "# Intro\n\n[x][guide] [Intro][] [x](#Intro) [^a]\n\n[guide]: manual.dj\n[^a]: note";
+        "# Intro\n\n[x][guide] [Intro][] [x](#Intro) [^a]\n\n[guide]: https://example.com/manual\n[^a]: note";
     server.open(source);
     assert_eq!(server.diagnostics()["diagnostics"], json!([]));
     for (needle, label, definition) in [
@@ -464,7 +475,7 @@ fn stdio_definition_and_reverse_references_cover_all_label_kinds() {
 #[test]
 fn stdio_duplicate_definitions_override_heading_and_report_precise_warning() {
     let mut server = Server::new(true);
-    let source = "# Same\n\n[Same][]\n\n[Same]: first\n[Same]: last\n";
+    let source = "# Same\n\n[Same][]\n\n[Same]: https://example.com/first\n[Same]: https://example.com/last\n";
     server.open(source);
     let diagnostics = server.diagnostics();
     assert_eq!(diagnostics["diagnostics"].as_array().unwrap().len(), 1);
@@ -484,9 +495,9 @@ fn stdio_duplicate_definitions_override_heading_and_report_precise_warning() {
     assert_eq!(target["range"], warning["range"]);
     let links = server.document("textDocument/documentLink");
     assert_eq!(links.as_array().unwrap().len(), 3);
-    assert_eq!(links[0]["target"], "file:///last");
-    assert_eq!(links[1]["target"], "file:///first");
-    assert_eq!(links[2]["target"], "file:///last");
+    assert_eq!(links[0]["target"], "https://example.com/last");
+    assert_eq!(links[1]["target"], "https://example.com/first");
+    assert_eq!(links[2]["target"], "https://example.com/last");
     server.shutdown();
 }
 
@@ -803,7 +814,7 @@ fn stdio_position_encoding_negotiation_and_unicode_round_trip() {
         Some(&["utf-8"][..]),
     ] {
         let mut server = Server::with_position_encodings(true, true, encodings);
-        server.open("中😀 [x][标😀签]\r\n\r\n[标😀签]: guide.dj");
+        server.open("中😀 [x][标😀签]\r\n\r\n[标😀签]: https://example.com/guide");
         assert_eq!(server.diagnostics()["diagnostics"], json!([]));
         let expected = json!({"uri":"file:///test.dj","range":{"start":{"line":2,"character":1},"end":{"line":2,"character":5}}});
         assert_eq!(
@@ -826,7 +837,7 @@ fn stdio_position_encoding_negotiation_and_unicode_round_trip() {
             links[0]["range"],
             json!({"start":{"line":0,"character":2},"end":{"line":0,"character":11}})
         );
-        assert_eq!(links[0]["target"], "file:///guide.dj");
+        assert_eq!(links[0]["target"], "https://example.com/guide");
         server.shutdown();
     }
 }
@@ -1279,5 +1290,330 @@ fn stdio_completed_local_encoded_anchors_resolve_without_diagnostics() {
     );
     assert_eq!(target["uri"], uri);
     assert_eq!(range_text(&completed, &target["range"]), "中 文");
+    server.shutdown();
+}
+
+fn definition_uri(server: &mut Server, uri: &str, source: &str, at: usize) -> Value {
+    server.request(
+        "textDocument/definition",
+        json!({"textDocument":{"uri":uri},"position":source_position(source, at)}),
+    )
+}
+
+#[test]
+fn stdio_cross_file_definitions_resolve_unopened_headings_and_explicit_ids() {
+    let repo = Repository::new();
+    let target = "# Intro\r\n\r\n# Intro\r\n\r\n{#custom}\r\n## 中😀\r\n\r\nword{#inline}\r\n";
+    repo.write("guide.dj", target);
+    let source = "中😀 [auto](../guide.dj#Intro-1) [explicit](../guide.dj#custom) [inline](../guide.dj#inline) [file](../guide.dj?view=source)\n";
+    repo.write("docs/current.dj", source);
+    let uri = repo.uri("docs/current.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, source);
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    for (needle, expected, line) in [
+        ("Intro-1)", "Intro", 2),
+        ("custom)", "custom", 4),
+        ("inline)", "inline", 7),
+    ] {
+        let location = definition_uri(&mut server, &uri, source, source.find(needle).unwrap());
+        assert_eq!(location["uri"], repo.uri("guide.dj"));
+        assert_eq!(location["range"]["start"]["line"], line);
+        assert_eq!(range_text(target, &location["range"]), expected);
+    }
+    let location = definition_uri(&mut server, &uri, source, source.find("?view").unwrap());
+    assert_eq!(location["uri"], repo.uri("guide.dj"));
+    assert_eq!(
+        location["range"],
+        json!({"start":{"line":0,"character":0},"end":{"line":0,"character":0}})
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_cross_file_encoded_paths_and_fragments_use_actual_target_locations() {
+    let repo = Repository::new();
+    let target = "# 中 文\n";
+    repo.write("docs/中 file.dj", target);
+    let source = "😀 [x](docs/%E4%B8%AD%20file.dj?x=1#%E4%B8%AD-%E6%96%87)\n";
+    repo.write("current.dj", source);
+    let uri = repo.uri("current.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, source);
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    let location = definition_uri(&mut server, &uri, source, source.find("#%").unwrap() + 1);
+    assert_eq!(location["uri"], repo.uri("docs/中 file.dj"));
+    assert_eq!(range_text(target, &location["range"]), "中 文");
+    server.shutdown();
+}
+
+#[test]
+fn stdio_broken_links_are_errors_at_the_file_fragment_or_reference() {
+    let repo = Repository::new();
+    repo.write("guide.dj", "# Existing\n");
+    repo.write("image.png", "image");
+    let source = "中😀 [missing](absent.dj#intro) [anchor](guide.dj#absent) ![image](image.png#part) [external](https://example.invalid/missing#absent)\n\n[x][missing] [^note] [local](#missing)\n";
+    repo.write("current.dj", source);
+    let uri = repo.uri("current.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, source);
+    let diagnostics = server.diagnostics_for(&uri)["diagnostics"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(diagnostics.len(), 5);
+    for diagnostic in &diagnostics {
+        assert_eq!(diagnostic["severity"], 1);
+    }
+    let file = diagnostics
+        .iter()
+        .find(|d| {
+            d["message"]
+                .as_str()
+                .unwrap()
+                .contains("Link target does not exist")
+        })
+        .unwrap();
+    assert_eq!(range_text(source, &file["range"]), "absent.dj");
+    let anchor = diagnostics
+        .iter()
+        .find(|d| d["message"] == "Anchor not found: absent")
+        .unwrap();
+    assert_eq!(range_text(source, &anchor["range"]), "absent");
+    for needle in ["absent.dj", "guide.dj#absent", "https://"] {
+        assert!(
+            definition_uri(&mut server, &uri, source, source.find(needle).unwrap() + 1).is_null()
+        );
+    }
+    server.shutdown();
+}
+
+#[test]
+fn stdio_reference_label_navigation_is_preserved_and_destination_jumps_across_files() {
+    let repo = Repository::new();
+    let target = "{#setup}\n# Install\n";
+    repo.write("guide.dj", target);
+    let source = "[manual][guide]\n\n[guide]: guide.dj#setup\n";
+    repo.write("current.dj", source);
+    let uri = repo.uri("current.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, source);
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    let label = definition_uri(&mut server, &uri, source, source.find("guide]").unwrap());
+    assert_eq!(label["uri"], uri);
+    assert_eq!(label["range"]["start"]["line"], 2);
+    for at in [
+        source.find("manual").unwrap(),
+        source.find("guide.dj").unwrap(),
+    ] {
+        let location = definition_uri(&mut server, &uri, source, at);
+        assert_eq!(location["uri"], repo.uri("guide.dj"));
+        assert_eq!(range_text(target, &location["range"]), "setup");
+    }
+    server.shutdown();
+}
+
+#[test]
+fn stdio_link_diagnostics_follow_unsaved_targets_close_and_file_events() {
+    let repo = Repository::new();
+    repo.write("target.dj", "{#intro}\n# Disk\n");
+    let source = "[x](target.dj#intro)";
+    repo.write("current.dj", source);
+    let uri = repo.uri("current.dj");
+    let target_uri = repo.uri("target.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, source);
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    open_uri(&mut server, &target_uri, "# Changed\n");
+    let diagnostics = server.diagnostics_for(&uri);
+    assert_eq!(diagnostics["version"], 1);
+    assert_eq!(
+        diagnostics["diagnostics"][0]["message"],
+        "Anchor not found: intro"
+    );
+    assert!(definition_uri(&mut server, &uri, source, source.find("intro").unwrap()).is_null());
+    server.notify("textDocument/didChange", json!({"textDocument":{"uri":target_uri,"version":2},"contentChanges":[{"text":"{#intro}\n# Unsaved\n"}]}));
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    let location = definition_uri(&mut server, &uri, source, source.find("intro").unwrap());
+    assert_eq!(location["uri"], target_uri);
+    assert_eq!(location["range"]["start"]["line"], 0);
+    // An on-disk change cannot override an open target's unsaved text.
+    repo.write("target.dj", "# Gone\n");
+    server.notify("textDocument/didSave", json!({"textDocument":{"uri":uri}}));
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    server.notify(
+        "textDocument/didClose",
+        json!({"textDocument":{"uri":target_uri}}),
+    );
+    assert_eq!(
+        server.diagnostics_for(&uri)["diagnostics"][0]["message"],
+        "Anchor not found: intro"
+    );
+    repo.write("target.dj", "{#intro}\n# Restored\n");
+    server.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({"changes":[{"uri":target_uri,"type":2}]}),
+    );
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    std::fs::remove_file(repo.0.join("target.dj")).unwrap();
+    server.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({"changes":[{"uri":target_uri,"type":3}]}),
+    );
+    assert!(server.diagnostics_for(&uri)["diagnostics"][0]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Link target does not exist"));
+    repo.write("target.dj", "{#intro}\n# Created\n");
+    server.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({"changes":[{"uri":target_uri,"type":1}]}),
+    );
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    server.shutdown();
+}
+
+#[test]
+fn stdio_link_targets_outside_the_index_and_new_unsaved_files_are_resolved() {
+    let repo = Repository::new();
+    let outside = Repository::new();
+    repo.write(".gitignore", "ignored.dj\n");
+    repo.write("ignored.dj", "# Hidden\n");
+    outside.write("outside.dj", "# Outside\n");
+    let source = format!(
+        "[ignored](ignored.dj#Hidden) [outside]({}#Outside) [new](new.dj#Draft)",
+        outside.uri("outside.dj")
+    );
+    repo.write("current.dj", &source);
+    let uri = repo.uri("current.dj");
+    let new_uri = repo.uri("new.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, &source);
+    let diagnostics = server.diagnostics_for(&uri)["diagnostics"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(range_text(&source, &diagnostics[0]["range"]), "new.dj");
+    for (needle, target_uri) in [
+        ("ignored.dj#Hidden", repo.uri("ignored.dj")),
+        ("#Outside", outside.uri("outside.dj")),
+    ] {
+        assert_eq!(
+            definition_uri(&mut server, &uri, &source, source.find(needle).unwrap())["uri"],
+            target_uri
+        );
+    }
+    open_uri(&mut server, &new_uri, "# Draft\n");
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    assert_eq!(
+        definition_uri(&mut server, &uri, &source, source.find("#Draft").unwrap())["uri"],
+        new_uri
+    );
+    server.notify(
+        "textDocument/didClose",
+        json!({"textDocument":{"uri":new_uri}}),
+    );
+    assert_eq!(
+        server.diagnostics_for(&uri)["diagnostics"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_non_djot_files_are_checked_for_existence_and_read_failures_are_distinct() {
+    let repo = Repository::new();
+    std::fs::write(repo.0.join("bad.dj"), [0xff, 0xfe]).unwrap();
+    let source = "![x](image.png#%FF) [bad](bad.dj#anchor) [external](https://example.invalid/#%FF) [top](#)";
+    repo.write("current.dj", source);
+    let uri = repo.uri("current.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, source);
+    let diagnostics = server.diagnostics_for(&uri)["diagnostics"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(diagnostics.len(), 2);
+    assert_eq!(diagnostics[0]["severity"], 1);
+    assert_eq!(range_text(source, &diagnostics[0]["range"]), "image.png");
+    assert_eq!(diagnostics[1]["severity"], 2);
+    assert!(diagnostics[1]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Cannot read link target"));
+    assert!(definition_uri(&mut server, &uri, source, source.find("bad.dj").unwrap()).is_null());
+    let top = definition_uri(&mut server, &uri, source, source.find("[top]").unwrap() + 1);
+    assert_eq!(top["uri"], uri);
+    assert_eq!(top["range"]["start"], json!({"line":0,"character":0}));
+    repo.write("image.png", "image");
+    server.notify(
+        "workspace/didChangeWatchedFiles",
+        json!({"changes":[{"uri":repo.uri("image.png"),"type":1}]}),
+    );
+    let diagnostics = server.diagnostics_for(&uri)["diagnostics"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0]["severity"], 2);
+    server.shutdown();
+}
+
+#[test]
+fn stdio_links_inside_headings_take_precedence_over_the_surrounding_heading() {
+    let repo = Repository::new();
+    let target = "# Target\n";
+    repo.write("target.dj", target);
+    let source = "# [good](target.dj#Target) [bad](target.dj#missing) [local](#missing)\n";
+    repo.write("current.dj", source);
+    let uri = repo.uri("current.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, source);
+    let location = definition_uri(
+        &mut server,
+        &uri,
+        source,
+        source.find("target.dj#Target").unwrap(),
+    );
+    assert_eq!(location["uri"], repo.uri("target.dj"));
+    assert_eq!(range_text(target, &location["range"]), "Target");
+    for needle in ["target.dj#missing", "#missing)"] {
+        assert!(
+            definition_uri(&mut server, &uri, source, source.find(needle).unwrap() + 1).is_null()
+        );
+    }
+    server.shutdown();
+}
+
+#[test]
+fn stdio_reference_destinations_are_validated_without_treating_labels_as_uris() {
+    let repo = Repository::new();
+    repo.write("guide.dj", "# Existing\n");
+    let source = "[x][file#label] [y][anchor#label]\n\n[file#label]: absent.dj#part\n[anchor#label]: guide.dj#absent\n";
+    repo.write("current.dj", source);
+    let uri = repo.uri("current.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, source);
+    let diagnostics = server.diagnostics_for(&uri)["diagnostics"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(diagnostics.len(), 4);
+    let mut ranges: Vec<_> = diagnostics
+        .iter()
+        .map(|d| {
+            assert_eq!(d["severity"], 1);
+            range_text(source, &d["range"])
+        })
+        .collect();
+    ranges.sort();
+    assert_eq!(
+        ranges,
+        ["absent", "absent.dj", "anchor#label", "file#label"]
+    );
     server.shutdown();
 }

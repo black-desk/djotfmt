@@ -5,6 +5,7 @@
 //! Snapshots own source and events. Context is computed on demand rather than
 //! retaining a syntax tree. Ranges are half-open UTF-8 byte offsets.
 
+pub mod links;
 pub mod text;
 use crate::parser::{parse_events, Event};
 use std::{
@@ -43,6 +44,8 @@ pub struct Reference {
 #[derive(Debug, Clone)]
 pub struct Link {
     pub range: Range<usize>,
+    /// Source destination text, or the reference label for a reference-style use.
+    pub destination_range: Range<usize>,
     pub destination: String,
 }
 
@@ -56,8 +59,15 @@ pub struct Heading {
     pub parent: Option<usize>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Severity {
+    Error,
+    Warning,
+}
+
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
+    pub severity: Severity,
     pub range: Range<usize>,
     pub message: String,
 }
@@ -353,6 +363,11 @@ impl Document {
                             if let (Some(first), Some(last)) = (values.first(), values.last()) {
                                 self.links.push(Link {
                                     range: source_range(&self.source, first.startpos, last.endpos),
+                                    destination_range: source_range(
+                                        &self.source,
+                                        first.startpos,
+                                        last.endpos,
+                                    ),
                                     destination: destination.clone(),
                                 });
                             }
@@ -432,9 +447,11 @@ impl Document {
                         let destination = text.replace(['\r', '\n'], "");
                         self.links.push(Link {
                             range: full_range.clone(),
+                            destination_range: self.event_range(span.open).end
+                                ..self.event_range(span.close).start,
                             destination: destination.clone(),
                         });
-                        if !destination.starts_with('#') {
+                        if !destination.starts_with('#') || destination == "#" {
                             continue;
                         }
                     }
@@ -523,6 +540,7 @@ impl Document {
             if !seen.insert(key.clone()) {
                 self.diagnostics.push(Diagnostic {
                     range: d.name_range.clone(),
+                    severity: Severity::Warning,
                     message: format!("Duplicate definition: {}", d.key),
                 });
             }
@@ -535,6 +553,7 @@ impl Document {
             } else {
                 self.diagnostics.push(Diagnostic {
                     range: r.name_range.clone(),
+                    severity: Severity::Error,
                     message: format!("Unresolved reference: {}", r.key),
                 });
             }
@@ -546,6 +565,7 @@ impl Document {
                 if let Some(target) = reference.target {
                     self.links.push(Link {
                         range: reference.full_range.clone(),
+                        destination_range: reference.name_range.clone(),
                         destination: self.definitions[target].destination.clone(),
                     });
                 }
