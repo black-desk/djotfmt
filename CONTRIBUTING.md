@@ -28,16 +28,16 @@ cargo test
 
 ## Releases
 
-`Cargo.toml`’s `package.version` drives stable and prerelease versions. Update
-it and `Cargo.lock` together, then merge to `master`. After the same commit
-passes CI’s `pass` job, CI calls `.github/workflows/cd.yml`. The shared
+The `package.version` in `Cargo.toml` drives stable and prerelease versions.
+Update it and `Cargo.lock` together, then merge to `master`. After the same
+commit passes the `pass` job, CI calls `.github/workflows/cd.yml`. The shared
 GoReleaser action validates the version, creates and pushes `v<version>`,
 publishes GitHub Release archives, and publishes the crate to crates.io using
 Trusted Publishing.
 
 Each archive includes `djotfmt` and `djotls`. The configured targets are Linux
-and macOS, on x86_64 and aarch64. The project installs `cargo-zigbuild` in
-`.goreleaser.yaml`’s `before.hooks`.
+and macOS, on x86_64 and aarch64. The project installs `cargo-zigbuild` in the
+`before.hooks` of `.goreleaser.yaml`.
 
 For an RC, use a version such as `0.1.1-rc.1`. Tags are created automatically
 for both stable and RC versions; `release.prerelease: auto` marks GitHub
@@ -50,12 +50,15 @@ and manual CI runs do not publish.
 
 ### Trusted Publisher setup
 
-Before merging the release workflow, configure the `djotls` crate’s Trusted
-Publisher on crates.io:
+Before merging the release workflow, configure a Trusted Publisher for the
+`djotls` crate on crates.io:
 
 - Repository owner: `black-desk`
+
 - Repository name: `djotls`
+
 - Workflow filename: `ci.yml`
+
 - Environment: leave unset
 
 The initial crate version has already been published manually. The workflow
