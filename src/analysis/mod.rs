@@ -48,6 +48,7 @@ pub struct Link {
 
 #[derive(Debug, Clone)]
 pub struct Heading {
+    pub id: String,
     pub level: usize,
     pub title: String,
     pub range: Range<usize>,
@@ -410,6 +411,7 @@ impl Document {
                     });
                     let open = &self.events[span.open];
                     self.headings.push(Heading {
+                        id,
                         level: open.endpos + 1 - open.startpos,
                         title,
                         range,

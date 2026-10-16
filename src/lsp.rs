@@ -265,21 +265,23 @@ impl LanguageServer for Backend {
         let mut symbols = Vec::new();
         let mut add = |uri: &Uri, doc: &Document| {
             for heading in &doc.headings {
-                if !heading.title.to_lowercase().contains(&query) {
+                let title = if heading.title.is_empty() {
+                    "(untitled)"
+                } else {
+                    &heading.title
+                };
+                let name = format!("{title} ({}#{})", uri.as_str(), heading.id);
+                if !name.to_lowercase().contains(&query) {
                     continue;
                 }
                 #[allow(deprecated)]
                 symbols.push(SymbolInformation {
-                    name: if heading.title.is_empty() {
-                        "(untitled)".into()
-                    } else {
-                        heading.title.clone()
-                    },
+                    name,
                     kind: SymbolKind::STRING,
                     tags: None,
                     deprecated: None,
                     location: Location::new(uri.clone(), range(doc, heading.selection.clone())),
-                    container_name: heading.parent.map(|p| doc.headings[p].title.clone()),
+                    container_name: None,
                 });
             }
         };
