@@ -8,6 +8,12 @@ default-run = "djotfmt"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
+description = "A Djot toolkit with a formatter and language server"
+repository = "https://github.com/black-desk/djotls"
+readme = "README.md"
+keywords = ["djot", "formatter", "lsp"]
+categories = ["command-line-utilities", "text-processing"]
+exclude = [".format/**"]
 
 [dependencies]
 url = "2"
