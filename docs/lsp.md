@@ -124,9 +124,11 @@ The server supports:
   hierarchical document symbols).
 
 - Workspace heading search through `workspace/symbol`, including unopened `.dj`
-  files in the Git repositories containing the workspace folders. Duplicate
-  titles keep separate file locations. Search matches title substrings without
-  case sensitivity.
+  files in the Git repositories containing the workspace folders. Names use
+  `Title (uri#anchor)`, with each heading’s explicit or generated anchor. No
+  `containerName` is returned. Duplicate titles keep separate file locations.
+  Search matches name substrings without case sensitivity, including file URIs
+  and anchors.
 
 - Definition navigation and references within the open document for link labels,
   footnotes, explicit IDs and implicit heading references.

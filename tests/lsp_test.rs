@@ -884,7 +884,14 @@ fn workspace_symbols(server: &mut Server, query: &str) -> Vec<Value> {
 fn symbol_names(server: &mut Server) -> Vec<String> {
     let mut names: Vec<_> = workspace_symbols(server, "")
         .iter()
-        .map(|v| v["name"].as_str().unwrap().to_owned())
+        .map(|v| {
+            assert!(v.get("containerName").is_none());
+            let name = v["name"].as_str().unwrap();
+            let suffix = format!(" ({}#", v["location"]["uri"].as_str().unwrap());
+            let (title, anchor) = name.rsplit_once(&suffix).expect("title (uri#anchor)");
+            assert!(anchor.ends_with(')'));
+            title.to_owned()
+        })
         .collect();
     names.sort();
     names
@@ -933,7 +940,11 @@ fn stdio_workspace_git_discovery_and_unopened_headings() {
     let symbols = workspace_symbols(&mut server, "CHILD");
     assert_eq!(symbols.len(), 1);
     assert_eq!(symbols[0]["location"]["uri"], repo.uri("docs/中 文.dj"));
-    assert_eq!(symbols[0]["containerName"], "中😀");
+    assert!(symbols[0].get("containerName").is_none());
+    assert_eq!(
+        symbols[0]["name"],
+        format!("Child ({}#Child)", repo.uri("docs/中 文.dj"))
+    );
     let source = "# 中😀\r\n\r\n## Child\r\n";
     assert_eq!(
         range_text(source, &symbols[0]["location"]["range"]),
@@ -1046,17 +1057,49 @@ fn stdio_workspace_duplicate_titles_keep_distinct_file_locations() {
     let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
     let symbols = workspace_symbols(&mut server, "Intro");
     assert_eq!(symbols.len(), 3);
-    for (symbol, file, line) in [
-        (&symbols[0], "a.dj", 0),
-        (&symbols[1], "a.dj", 2),
-        (&symbols[2], "b.dj", 0),
+    for (symbol, file, line, anchor) in [
+        (&symbols[0], "a.dj", 0, "Intro"),
+        (&symbols[1], "a.dj", 2, "Intro-1"),
+        (&symbols[2], "b.dj", 0, "Intro"),
     ] {
-        assert_eq!(symbol["name"], "Intro");
+        assert_eq!(
+            symbol["name"],
+            format!("Intro ({}#{anchor})", repo.uri(file))
+        );
+        assert!(symbol.get("containerName").is_none());
         assert_eq!(symbol["location"]["uri"], repo.uri(file));
         assert_eq!(
             symbol["location"]["range"]["start"],
             json!({"line":line,"character":2})
         );
     }
+    server.shutdown();
+}
+
+#[test]
+fn stdio_workspace_symbol_names_include_explicit_and_generated_anchors() {
+    let repo = Repository::new();
+    let source = "{#custom}\n# Title\n\n## 中 文\n";
+    repo.write("names.dj", source);
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    let symbols = workspace_symbols(&mut server, "");
+    assert_eq!(symbols.len(), 2);
+    for (symbol, title, anchor) in [
+        (&symbols[0], "Title", "custom"),
+        (&symbols[1], "中 文", "中-文"),
+    ] {
+        assert_eq!(
+            symbol["name"],
+            format!("{title} ({}#{anchor})", repo.uri("names.dj"))
+        );
+        assert!(symbol.get("containerName").is_none());
+        assert_eq!(symbol["location"]["uri"], repo.uri("names.dj"));
+        assert_eq!(range_text(source, &symbol["location"]["range"]), title);
+    }
+    assert_eq!(
+        workspace_symbols(&mut server, "#custom"),
+        vec![symbols[0].clone()]
+    );
+    assert_eq!(workspace_symbols(&mut server, "names.dj").len(), 2);
     server.shutdown();
 }
