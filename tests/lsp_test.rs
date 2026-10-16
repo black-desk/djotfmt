@@ -887,9 +887,8 @@ fn symbol_names(server: &mut Server) -> Vec<String> {
         .map(|v| {
             assert!(v.get("containerName").is_none());
             let name = v["name"].as_str().unwrap();
-            let suffix = format!(" ({}#", v["location"]["uri"].as_str().unwrap());
-            let (title, anchor) = name.rsplit_once(&suffix).expect("title (uri#anchor)");
-            assert!(anchor.ends_with(')'));
+            let (title, target) = name.rsplit_once(" (").expect("title (path#anchor)");
+            assert!(target.contains('#') && target.ends_with(')'));
             title.to_owned()
         })
         .collect();
@@ -941,10 +940,7 @@ fn stdio_workspace_git_discovery_and_unopened_headings() {
     assert_eq!(symbols.len(), 1);
     assert_eq!(symbols[0]["location"]["uri"], repo.uri("docs/中 文.dj"));
     assert!(symbols[0].get("containerName").is_none());
-    assert_eq!(
-        symbols[0]["name"],
-        format!("Child ({}#Child)", repo.uri("docs/中 文.dj"))
-    );
+    assert_eq!(symbols[0]["name"], "Child (docs/中 文.dj#Child)");
     let source = "# 中😀\r\n\r\n## Child\r\n";
     assert_eq!(
         range_text(source, &symbols[0]["location"]["range"]),
@@ -1062,10 +1058,7 @@ fn stdio_workspace_duplicate_titles_keep_distinct_file_locations() {
         (&symbols[1], "a.dj", 2, "Intro-1"),
         (&symbols[2], "b.dj", 0, "Intro"),
     ] {
-        assert_eq!(
-            symbol["name"],
-            format!("Intro ({}#{anchor})", repo.uri(file))
-        );
+        assert_eq!(symbol["name"], format!("Intro ({file}#{anchor})"));
         assert!(symbol.get("containerName").is_none());
         assert_eq!(symbol["location"]["uri"], repo.uri(file));
         assert_eq!(
@@ -1088,10 +1081,7 @@ fn stdio_workspace_symbol_names_include_explicit_and_generated_anchors() {
         (&symbols[0], "Title", "custom"),
         (&symbols[1], "中 文", "中-文"),
     ] {
-        assert_eq!(
-            symbol["name"],
-            format!("{title} ({}#{anchor})", repo.uri("names.dj"))
-        );
+        assert_eq!(symbol["name"], format!("{title} (names.dj#{anchor})"));
         assert!(symbol.get("containerName").is_none());
         assert_eq!(symbol["location"]["uri"], repo.uri("names.dj"));
         assert_eq!(range_text(source, &symbol["location"]["range"]), title);

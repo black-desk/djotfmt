@@ -120,10 +120,12 @@ The server supports:
 
 - Workspace heading search through `workspace/symbol`, including unopened
   `.dj` files in the Git repositories containing the workspace folders.
-  Names use `Title (uri#anchor)`, with each heading's explicit or generated
-  anchor. No `containerName` is returned. Duplicate titles keep separate
-  file locations. Search matches name substrings without case sensitivity,
-  including file URIs and anchors.
+  Names use `Title (path#anchor)`, with the path relative to the Git
+  repository root and each heading's explicit or generated anchor.
+  Standalone local files use their filename; non-file documents use their
+  URI. No `containerName` is returned. Duplicate titles keep separate file
+  locations. Search matches name substrings without case sensitivity,
+  including paths and anchors.
 
 - Definition navigation and references within the open document for link
   labels, footnotes, explicit IDs and implicit heading references.
