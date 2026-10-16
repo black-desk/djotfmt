@@ -77,7 +77,8 @@ impl Resolver {
         // Non-file buffers can still resolve their own local fragments.
         let file = if let Some(doc) = self.documents.get(&target) {
             File::Djot(doc.clone())
-        } else if target.scheme() == "file" {
+        } else {
+            // Non-file targets without a document snapshot returned above.
             let Ok(path) = target.to_file_path() else {
                 return Resolution::Unavailable("Cannot resolve local file URI".into());
             };
@@ -85,8 +86,6 @@ impl Resolver {
                 .entry(path.clone())
                 .or_insert_with(|| read_file(&path))
                 .clone()
-        } else {
-            return Resolution::External;
         };
         match file {
             File::Missing => Resolution::MissingFile(target.to_file_path().unwrap()),
