@@ -1,8 +1,8 @@
-<div id="Contributing-to-djotfmt" class="section">
+<div id="Contributing-to-djotls" class="section">
 
-# Contributing to djotfmt
+# Contributing to djotls
 
-Thank you for your interest in contributing to djotfmt!
+Thank you for your interest in contributing to djotls!
 
 <div id="Build" class="section">
 

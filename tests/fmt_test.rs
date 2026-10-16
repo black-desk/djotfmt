@@ -51,9 +51,9 @@ fn run_format_test(
     let expected = std::fs::read_to_string(&expected_path).map_err(|e| e.to_string())?;
 
     let max_cols = parse_max_cols(&input);
-    let config = djotfmt::fmt::FmtConfig { max_cols };
+    let config = djotls::fmt::FmtConfig { max_cols };
 
-    let output = djotfmt::fmt::format(&input, &config);
+    let output = djotls::fmt::format(&input, &config);
 
     assert_eq!(
         output,
@@ -68,9 +68,9 @@ fn run_idempotent_test(path: std::path::PathBuf) -> Result<(), Failed> {
     let input = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
 
     let max_cols = parse_max_cols(&input);
-    let config = djotfmt::fmt::FmtConfig { max_cols };
+    let config = djotls::fmt::FmtConfig { max_cols };
 
-    let output = djotfmt::fmt::format(&input, &config);
+    let output = djotls::fmt::format(&input, &config);
 
     assert_eq!(
         output,

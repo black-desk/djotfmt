@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Protocol adapter. Analysis and text coordinates are independent of this crate.
-use djotfmt::{
+use djotls::{
     analysis::{text::LineIndex, CompletionKind, Document, SymbolKind as DjotSymbolKind},
     fmt::{self, FmtConfig},
 };
@@ -59,7 +59,7 @@ impl Backend {
             .map(|d| Diagnostic {
                 range: range(&snapshot.doc, d.range.clone()),
                 severity: Some(DiagnosticSeverity::WARNING),
-                source: Some("djot-lsp".into()),
+                source: Some("djotls".into()),
                 message: d.message.clone(),
                 ..Default::default()
             })
@@ -141,7 +141,7 @@ impl LanguageServer for Backend {
             },
             offset_encoding: None,
             server_info: Some(ServerInfo {
-                name: "djot-lsp".into(),
+                name: "djotls".into(),
                 version: Some(env!("CARGO_PKG_VERSION").into()),
             }),
         })

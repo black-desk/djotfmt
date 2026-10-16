@@ -41,11 +41,11 @@ fn main() -> std::io::Result<()> {
 
         let input = std::fs::read_to_string(file.clone())?;
 
-        let config = djotfmt::fmt::FmtConfig {
+        let config = djotls::fmt::FmtConfig {
             max_cols: matches.columns,
         };
 
-        let result = djotfmt::fmt::format(&input, &config);
+        let result = djotls::fmt::format(&input, &config);
         output.write_all(result.as_bytes())?;
 
         log::trace!("File rendered");

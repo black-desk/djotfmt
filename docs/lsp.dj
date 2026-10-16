@@ -2,23 +2,23 @@
 
 # Djot language server
 
-Build with `cargo build --release --bin djot-lsp`, or install both tools
+Build with `cargo build --release --bin djotls`, or install both tools
 with `cargo install --path .`.
-Run `djot-lsp` to serve the Language Server Protocol over standard input
+Run `djotls` to serve the Language Server Protocol over standard input
 and output. The server writes only protocol messages to standard output.
 The existing `djotfmt` command remains the formatter; `cargo run` still
 selects it by default.
 
 ## Editor setup
 
-Configure your editor's LSP client to run `djot-lsp` for Djot buffers.
+Configure your editor's LSP client to run `djotls` for Djot buffers.
 Use language ID `djot` and associate `.dj` and `.djot` files with it.
 ### Neovim 0.11 or newer
 
 Install from the repository with `cargo install --path . --locked`.
-Make sure `~/.cargo/bin` is on Neovim's `PATH`: `:echo exepath('djot-lsp')`
+Make sure `~/.cargo/bin` is on Neovim's `PATH`: `:echo exepath('djotls')`
 should print the executable's path. If you only built the project, replace
-`'djot-lsp'` below with the absolute path to `target/release/djot-lsp`.
+`'djotls'` below with the absolute path to `target/release/djotls`.
 
 Put this in `init.lua`. It uses Neovim's built-in LSP client, completion
 and snippets; `nvim-lspconfig`, Mason and a completion plugin are optional.
@@ -26,7 +26,7 @@ and snippets; `nvim-lspconfig`, Mason and a completion plugin are optional.
 ``` lua
 vim.filetype.add({ extension = { dj = 'djot', djot = 'djot' } })
 vim.lsp.config('djot', {
-  cmd = { 'djot-lsp' },
+  cmd = { 'djotls' },
   filetypes = { 'djot' },
   root_markers = { '.git' },
   workspace_required = false, -- Also attach to standalone files.

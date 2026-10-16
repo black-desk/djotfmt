@@ -26,7 +26,7 @@ impl Server {
         Self::with_position_encodings(snippets, nested, None)
     }
     fn with_position_encodings(snippets: bool, nested: bool, encodings: Option<&[&str]>) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_djot-lsp"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_djotls"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
