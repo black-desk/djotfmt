@@ -92,6 +92,10 @@ impl Server {
         }
         let result = server.request("initialize", initialization);
         assert_eq!(result["capabilities"]["workspaceSymbolProvider"], true);
+        assert_eq!(
+            result["capabilities"]["renameProvider"]["prepareProvider"],
+            true
+        );
         let triggers = result["capabilities"]["completionProvider"]["triggerCharacters"]
             .as_array()
             .unwrap();
@@ -1710,6 +1714,440 @@ fn stdio_reference_destinations_are_validated_without_treating_labels_as_uris() 
     assert_eq!(
         ranges,
         ["absent", "absent.dj", "anchor#label", "file#label"]
+    );
+    server.shutdown();
+}
+
+fn rename_request(server: &mut Server, uri: &str, source: &str, at: usize, name: &str) -> Value {
+    server.response(
+        "textDocument/rename",
+        json!({"textDocument":{"uri":uri},"position":source_position(source, at),"newName":name}),
+    )
+}
+
+fn prepare_rename(server: &mut Server, uri: &str, source: &str, at: usize) -> Value {
+    server.request(
+        "textDocument/prepareRename",
+        json!({"textDocument":{"uri":uri},"position":source_position(source, at)}),
+    )
+}
+
+// Apply the actual protocol edits with independent UTF-16 conversion. No
+// analysis APIs participate in the tests, including duplicate-anchor checks.
+fn apply_workspace_edit(
+    edit: &Value,
+    sources: &[(&str, &str)],
+) -> std::collections::HashMap<String, String> {
+    let files: Vec<(String, Vec<Value>)> = if let Some(changes) = edit["changes"].as_object() {
+        changes
+            .iter()
+            .map(|(uri, edits)| (uri.clone(), edits.as_array().unwrap().clone()))
+            .collect()
+    } else {
+        edit["documentChanges"]
+            .as_array()
+            .expect("workspace edit")
+            .iter()
+            .map(|file| {
+                (
+                    file["textDocument"]["uri"].as_str().unwrap().to_string(),
+                    file["edits"].as_array().unwrap().clone(),
+                )
+            })
+            .collect()
+    };
+    let mut result = std::collections::HashMap::new();
+    for (uri, mut edits) in files {
+        let source = sources
+            .iter()
+            .find(|(key, _)| *key == uri)
+            .expect("unexpected file edited")
+            .1;
+        edits.sort_by_key(|edit| source_offset(source, &edit["range"]["start"]));
+        for pair in edits.windows(2) {
+            assert!(
+                source_offset(source, &pair[0]["range"]["end"])
+                    <= source_offset(source, &pair[1]["range"]["start"]),
+                "overlapping edits"
+            );
+        }
+        let mut updated = source.to_string();
+        for edit in edits.iter().rev() {
+            updated = apply_edit(&updated, edit);
+        }
+        assert!(result.insert(uri, updated).is_none(), "duplicate file edit");
+    }
+    result
+}
+
+#[test]
+fn stdio_rename_heading_updates_workspace_links_and_renumbered_anchors() {
+    let repo = Repository::new();
+    let target = "# Same\n\n# Same\n\n# Next\n\n[Same][] [shown][Same] [local](#Same-1)\n";
+    let source = "[a](../guide%20x.dj?mode=1#Same) [b](../guide%20x.dj#Same-1) [c](../guide%20x.dj#Next) ![ref][r] [other](other.dj#Same) [web](https://example.com/guide.dj#Same)\n\n[r]: ../guide%20x.dj#Same-1\n";
+    repo.write("guide x.dj", target);
+    repo.write("docs/links.dj", source);
+    repo.write("docs/other.dj", "# Same\n");
+    let target_uri = repo.uri("guide x.dj");
+    let source_uri = repo.uri("docs/links.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &target_uri, target);
+    assert_eq!(
+        server.diagnostics_for(&target_uri)["diagnostics"],
+        json!([])
+    );
+    let prepare = prepare_rename(&mut server, &target_uri, target, 2);
+    assert_eq!(prepare["placeholder"], "Same");
+    assert_eq!(range_text(target, &prepare["range"]), "Same");
+    let response = rename_request(&mut server, &target_uri, target, 2, "Next");
+    assert!(response.get("error").is_none(), "{response}");
+    let renamed = apply_workspace_edit(
+        &response["result"],
+        &[(&target_uri, target), (&source_uri, source)],
+    );
+    assert_eq!(renamed.len(), 2);
+    let expected_target =
+        "# Next\n\n# Same\n\n# Next\n\n[Same][Next] [shown][Next] [local](#Same)\n";
+    let expected_source = "[a](../guide%20x.dj?mode=1#Next) [b](../guide%20x.dj#Same) [c](../guide%20x.dj#Next-1) ![ref][r] [other](other.dj#Same) [web](https://example.com/guide.dj#Same)\n\n[r]: ../guide%20x.dj#Same\n";
+    assert_eq!(renamed[&target_uri], expected_target);
+    assert_eq!(renamed[&source_uri], expected_source);
+    // The server only proposes edits; the client applies them to disk/buffers.
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("guide x.dj")).unwrap(),
+        target
+    );
+    repo.write("guide x.dj", expected_target);
+    repo.write("docs/links.dj", expected_source);
+    server.notify("textDocument/didChange", json!({"textDocument":{"uri":target_uri,"version":2},"contentChanges":[{"text":expected_target}]}));
+    assert_eq!(
+        server.diagnostics_for(&target_uri)["diagnostics"],
+        json!([])
+    );
+    open_uri(&mut server, &source_uri, expected_source);
+    assert_eq!(
+        server.diagnostics_for(&source_uri)["diagnostics"],
+        json!([])
+    );
+    for (needle, expected_line) in [("#Next)", 0), ("#Same)", 2), ("#Next-1)", 4)] {
+        let location = definition_uri(
+            &mut server,
+            &source_uri,
+            expected_source,
+            expected_source.find(needle).unwrap() + 1,
+        );
+        assert_eq!(location["uri"], target_uri);
+        assert_eq!(location["range"]["start"]["line"], expected_line);
+    }
+    server.shutdown();
+}
+
+#[test]
+fn stdio_rename_heading_with_id_only_updates_title_references() {
+    let repo = Repository::new();
+    let target = "{#stable}\n# Old\n\n[Old][] [text][Old] [anchor](#stable)\n";
+    let source = "[incoming](target.dj#stable)\n";
+    repo.write("target.dj", target);
+    repo.write("links.dj", source);
+    let uri = repo.uri("target.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, target);
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    // Initiate from a title reference, with the same semantics as the heading.
+    let at = target.find("[Old][]").unwrap() + 1;
+    assert_eq!(
+        prepare_rename(&mut server, &uri, target, at)["placeholder"],
+        "Old"
+    );
+    let response = rename_request(&mut server, &uri, target, at, "New");
+    assert!(response.get("error").is_none(), "{response}");
+    let updated = apply_workspace_edit(&response["result"], &[(&uri, target)]);
+    assert_eq!(updated.len(), 1);
+    assert_eq!(
+        updated[&uri],
+        "{#stable}\n# New\n\n[Old][New] [text][New] [anchor](#stable)\n"
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_rename_id_recomputes_other_generated_anchors() {
+    let repo = Repository::new();
+    let target = "{#old}\n# First\n\n# new\n\n[x](#old) [generated](#new) [First][]\n";
+    let source = "[x](target.dj#old) [y](target.dj#new)\n";
+    repo.write("target.dj", target);
+    repo.write("links.dj", source);
+    let uri = repo.uri("target.dj");
+    let incoming = repo.uri("links.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, target);
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    assert_eq!(
+        prepare_rename(&mut server, &uri, target, 2)["placeholder"],
+        "old"
+    );
+    let response = rename_request(&mut server, &uri, target, 2, "new");
+    assert!(response.get("error").is_none(), "{response}");
+    let updated = apply_workspace_edit(&response["result"], &[(&uri, target), (&incoming, source)]);
+    assert_eq!(
+        updated[&uri],
+        "{#new}\n# First\n\n# new\n\n[x](#new) [generated](#new-1) [First][]\n"
+    );
+    assert_eq!(
+        updated[&incoming],
+        "[x](target.dj#new) [y](target.dj#new-1)\n"
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_rename_from_encoded_fragment_uses_unsaved_buffers_and_versions() {
+    let repo = Repository::new();
+    repo.write("target.dj", "# Disk\n");
+    let target = "{#旧}\r\n# 标题\r\n";
+    let source = "😀 [x](target.dj?q=1#%E6%97%A7)\r\n";
+    let uri = repo.uri("target.dj");
+    let incoming = repo.uri("new.dj");
+    let mut server = Server::start_with_init(
+        true,
+        true,
+        None,
+        Some(json!([repo.folder("")])),
+        json!({"capabilities":{"workspace":{"workspaceEdit":{"documentChanges":true}}}}),
+    );
+    open_uri(&mut server, &uri, target);
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    server.notify(
+        "textDocument/didOpen",
+        json!({"textDocument":{"uri":incoming,"languageId":"djot","version":7,"text":source}}),
+    );
+    assert_eq!(server.diagnostics_for(&incoming)["diagnostics"], json!([]));
+    let at = source.find("%E6").unwrap();
+    let prepare = prepare_rename(&mut server, &incoming, source, at);
+    assert_eq!(prepare["placeholder"], "旧");
+    assert_eq!(range_text(source, &prepare["range"]), "%E6%97%A7");
+    let response = rename_request(&mut server, &incoming, source, at, "新");
+    assert!(response.get("error").is_none(), "{response}");
+    assert!(response["result"]["changes"].is_null());
+    for file in response["result"]["documentChanges"].as_array().unwrap() {
+        assert_eq!(
+            file["textDocument"]["version"],
+            if file["textDocument"]["uri"] == incoming {
+                7
+            } else {
+                1
+            }
+        );
+    }
+    let updated = apply_workspace_edit(&response["result"], &[(&uri, target), (&incoming, source)]);
+    assert_eq!(updated[&uri], "{#新}\r\n# 标题\r\n");
+    assert_eq!(updated[&incoming], "😀 [x](target.dj?q=1#%E6%96%B0)\r\n");
+    assert!(!repo.0.join("new.dj").exists());
+    server.shutdown();
+}
+
+#[test]
+fn stdio_rename_link_to_ignored_target_and_inline_id() {
+    let repo = Repository::new();
+    repo.write(".gitignore", "ignored.dj\n");
+    let target = "word{#old}\n";
+    let source = "[link](ignored.dj#old)";
+    repo.write("ignored.dj", target);
+    let uri = repo.uri("current.dj");
+    let target_uri = repo.uri("ignored.dj");
+    let mut server = Server::start_with_init(
+        true,
+        true,
+        None,
+        Some(json!([repo.folder("")])),
+        json!({"capabilities":{"workspace":{"workspaceEdit":{"documentChanges":true}}}}),
+    );
+    open_uri(&mut server, &uri, source);
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    let at = source.find("#old").unwrap() + 1;
+    assert_eq!(
+        prepare_rename(&mut server, &uri, source, at)["placeholder"],
+        "old"
+    );
+    let response = rename_request(&mut server, &uri, source, at, "new");
+    assert!(response.get("error").is_none(), "{response}");
+    let target_edit = response["result"]["documentChanges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["textDocument"]["uri"] == target_uri)
+        .unwrap();
+    assert!(target_edit["textDocument"]["version"].is_null());
+    let updated = apply_workspace_edit(
+        &response["result"],
+        &[(&uri, source), (&target_uri, target)],
+    );
+    assert_eq!(updated[&uri], "[link](ignored.dj#new)");
+    assert_eq!(updated[&target_uri], "word{#new}\n");
+    server.shutdown();
+}
+
+#[test]
+fn stdio_rename_heading_escapes_literal_text_and_preserves_shadowing_labels() {
+    let mut server = Server::new(true);
+    let source = "# Old\n\n[Old][]\n\n[Old]: https://example.com\n";
+    server.open(source);
+    assert_eq!(server.diagnostics()["diagnostics"], json!([]));
+    let name = "New [title] *literal* 😀";
+    let response = rename_request(&mut server, "file:///test.dj", source, 2, name);
+    assert!(response.get("error").is_none(), "{response}");
+    let updated = apply_workspace_edit(&response["result"], &[("file:///test.dj", source)]);
+    let expected = "# New \\[title\\] \\*literal\\* 😀\n\n[Old][]\n\n[Old]: https://example.com\n";
+    assert_eq!(updated["file:///test.dj"], expected);
+    server.notify("textDocument/didChange", json!({"textDocument":{"uri":"file:///test.dj","version":2},"contentChanges":[{"text":expected}]}));
+    assert_eq!(server.diagnostics()["diagnostics"], json!([]));
+    assert_eq!(
+        server.document("textDocument/documentSymbol")[0]["name"],
+        name
+    );
+    server.shutdown();
+}
+
+#[test]
+fn stdio_rename_duplicate_explicit_ids_updates_only_links_to_selected_definition() {
+    for winning in [false, true] {
+        let repo = Repository::new();
+        let target = "{#same}\n# First\n\n{#same}\n# Second\n";
+        let source = "[link](target.dj#same)";
+        repo.write("target.dj", target);
+        repo.write("links.dj", source);
+        let uri = repo.uri("target.dj");
+        let incoming = repo.uri("links.dj");
+        let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+        open_uri(&mut server, &uri, target);
+        let at = if winning {
+            target.rfind("same").unwrap()
+        } else {
+            target.find("same").unwrap()
+        };
+        let response = rename_request(&mut server, &uri, target, at, "unique");
+        assert!(response.get("error").is_none(), "{response}");
+        let updated =
+            apply_workspace_edit(&response["result"], &[(&uri, target), (&incoming, source)]);
+        assert_eq!(updated.len(), if winning { 2 } else { 1 });
+        if winning {
+            assert_eq!(updated[&incoming], "[link](target.dj#unique)");
+        }
+        server.shutdown();
+    }
+}
+
+#[test]
+fn stdio_rename_rejects_invalid_names_conflicts_and_non_symbols() {
+    let mut server = Server::new(true);
+    for (source, at, name) in [
+        ("# Old\n", 2, ""),
+        ("# Old\n", 2, " new"),
+        ("# Old\n", 2, "New\nHeading"),
+        ("{#old}\n# Title\n", 2, "bad id"),
+        ("{#old}\n# Title\n", 2, "new .class"),
+        ("{#old}\n# Title\n\n{#taken}\n# Other\n", 2, "taken"),
+        ("# Old\n\n{#taken}\n# Other\n", 2, "taken"),
+        ("# First\n\n# Second\n\n[Second][]\n", 11, "First"),
+        ("# word{#inline}\n", 2, "New"),
+        ("# Old\n\n[Old][]\n\n[New]: https://example.com\n", 2, "New"),
+    ] {
+        server.open(source);
+        let response = rename_request(&mut server, "file:///test.dj", source, at, name);
+        assert_eq!(
+            response["error"]["code"], -32602,
+            "{source:?} -> {name:?}: {response}"
+        );
+    }
+    let source = "plain `code` [file](other.dj) [missing](#absent) [x][label] [^n] [bad](absent.dj#anchor) [web](https://example.com/#external)\n\n[label]: https://example.com\n[^n]: note\n";
+    server.open(source);
+    for needle in [
+        "plain",
+        "code",
+        "other.dj",
+        "absent",
+        "label]",
+        "n]",
+        "absent.dj",
+        "anchor)",
+        "external)",
+    ] {
+        let at = source.find(needle).unwrap();
+        assert!(
+            prepare_rename(&mut server, "file:///test.dj", source, at).is_null(),
+            "{needle}"
+        );
+        assert_eq!(
+            rename_request(&mut server, "file:///test.dj", source, at, "New")["error"]["code"],
+            -32602
+        );
+    }
+    server.open("# Same\n");
+    let response = rename_request(&mut server, "file:///test.dj", "# Same\n", 2, "Same");
+    assert_eq!(response["result"]["changes"], json!({}));
+    server.shutdown();
+}
+
+#[test]
+fn stdio_rename_generated_fragment_preserves_other_heading_link_text() {
+    let repo = Repository::new();
+    let target = "# Old\n\n# [Old][]\n\n[Old][] [shown][Old] [one](#Old) [two](#Old-1)\n";
+    let source = "[incoming](target.dj#Old)";
+    repo.write("target.dj", target);
+    let uri = repo.uri("current.dj");
+    let target_uri = repo.uri("target.dj");
+    let mut server = Server::start(true, true, None, Some(json!([repo.folder("")])));
+    open_uri(&mut server, &uri, source);
+    assert_eq!(server.diagnostics_for(&uri)["diagnostics"], json!([]));
+    let at = source.find("#Old").unwrap() + 1;
+    assert_eq!(
+        prepare_rename(&mut server, &uri, source, at)["placeholder"],
+        "Old"
+    );
+    let response = rename_request(&mut server, &uri, source, at, "New [title] 😀");
+    assert!(response.get("error").is_none(), "{response}");
+    let updated = apply_workspace_edit(
+        &response["result"],
+        &[(&uri, source), (&target_uri, target)],
+    );
+    let expected = "# New \\[title\\] 😀\n\n# [Old][New \\[title\\] 😀]\n\n[Old][New \\[title\\] 😀] [shown][New \\[title\\] 😀] [one](#New-title-%F0%9F%98%80) [two](#Old)\n";
+    assert_eq!(updated[&target_uri], expected);
+    assert_eq!(
+        updated[&uri],
+        "[incoming](target.dj#New-title-%F0%9F%98%80)"
+    );
+    repo.write("target.dj", expected);
+    open_uri(&mut server, &target_uri, expected);
+    assert_eq!(
+        server.diagnostics_for(&target_uri)["diagnostics"],
+        json!([])
+    );
+    let symbols = server.request(
+        "textDocument/documentSymbol",
+        json!({"textDocument":{"uri":target_uri}}),
+    );
+    assert_eq!(symbols[0]["name"], "New [title] 😀");
+    assert_eq!(symbols[1]["name"], "Old");
+    let location = definition_uri(
+        &mut server,
+        &target_uri,
+        expected,
+        expected.find("#Old)").unwrap() + 1,
+    );
+    assert_eq!(location["range"]["start"]["line"], 2);
+    server.shutdown();
+}
+
+#[test]
+fn stdio_rename_heading_replaces_nested_links_and_keeps_unresolved_references() {
+    let mut server = Server::new(true);
+    let source = "# Prefix [shown][Other]\n\n# Other\n\n[x][missing]\n\n[in](#Prefix-shown)\n";
+    server.open(source);
+    let response = rename_request(&mut server, "file:///test.dj", source, 2, "Renamed");
+    assert!(response.get("error").is_none(), "{response}");
+    let updated = apply_workspace_edit(&response["result"], &[("file:///test.dj", source)]);
+    assert_eq!(
+        updated["file:///test.dj"],
+        "# Renamed\n\n# Other\n\n[x][missing]\n\n[in](#Renamed)\n"
     );
     server.shutdown();
 }

@@ -6,6 +6,7 @@
 //! retaining a syntax tree. Ranges are half-open UTF-8 byte offsets.
 
 pub mod links;
+pub mod rename;
 pub mod text;
 use crate::parser::{parse_events, Event};
 use std::{
