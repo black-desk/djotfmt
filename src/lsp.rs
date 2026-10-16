@@ -3,7 +3,11 @@
 
 //! Protocol adapter. Analysis and text coordinates are independent of this crate.
 use djotls::{
-    analysis::{text::LineIndex, CompletionKind, Document, SymbolKind as DjotSymbolKind},
+    analysis::{
+        links::{Resolution, Resolver},
+        text::LineIndex,
+        CompletionKind, Document, Severity, SymbolKind as DjotSymbolKind,
+    },
     fmt::{self, FmtConfig},
     workspace::Workspace,
 };
@@ -30,6 +34,7 @@ pub struct Backend {
     client: Client,
     documents: RwLock<HashMap<Uri, Arc<Snapshot>>>,
     workspace: tokio::sync::Mutex<Workspace>,
+    diagnostics: tokio::sync::Mutex<()>,
     watch_files: AtomicBool,
     snippets: AtomicBool,
     nested_symbols: AtomicBool,
@@ -41,6 +46,7 @@ impl Backend {
             client,
             documents: RwLock::new(HashMap::new()),
             workspace: tokio::sync::Mutex::new(Workspace::default()),
+            diagnostics: tokio::sync::Mutex::new(()),
             watch_files: AtomicBool::new(false),
             snippets: AtomicBool::new(false),
             nested_symbols: AtomicBool::new(false),
@@ -87,23 +93,116 @@ impl Backend {
         Ok((roots, documents))
     }
 
-    async fn publish(&self, uri: Uri, snapshot: Arc<Snapshot>) {
-        let diagnostics = snapshot
-            .doc
-            .diagnostics
+    async fn refresh_diagnostics(&self) -> Result<()> {
+        // Serialize diagnostic batches; buffers can still update while disk I/O
+        // runs. Only publish results whose immutable snapshot is still current.
+        let _guard = self.diagnostics.lock().await;
+        let (_, mut documents) = self.workspace_documents().await?;
+        let mut open: Vec<_> = self
+            .documents
+            .read()
+            .unwrap()
             .iter()
-            .map(|d| Diagnostic {
-                range: range(&snapshot.doc, d.range.clone()),
-                severity: Some(DiagnosticSeverity::WARNING),
-                source: Some("djotls".into()),
-                message: d.message.clone(),
-                ..Default::default()
-            })
+            .map(|(uri, snapshot)| (uri.clone(), snapshot.clone()))
             .collect();
-        self.client
-            .publish_diagnostics(uri, diagnostics, Some(snapshot.version))
-            .await;
+        open.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+        for (uri, snapshot) in &open {
+            documents.insert(uri.clone(), snapshot.doc.clone());
+        }
+        let batches = tokio::task::spawn_blocking(move || {
+            let mut resolver = Resolver::new(
+                documents
+                    .into_iter()
+                    .map(|(uri, doc)| (uri.as_str().to_owned(), doc)),
+            );
+            open.into_iter()
+                .map(|(uri, snapshot)| {
+                    let diagnostics = link_diagnostics(&uri, &snapshot.doc, &mut resolver);
+                    (uri, snapshot, diagnostics)
+                })
+                .collect::<Vec<_>>()
+        })
+        .await
+        .map_err(|_| Error::internal_error())?;
+        for (uri, snapshot, diagnostics) in batches {
+            let current = self
+                .documents
+                .read()
+                .unwrap()
+                .get(&uri)
+                .is_some_and(|current| Arc::ptr_eq(current, &snapshot));
+            if current {
+                self.client
+                    .publish_diagnostics(uri, diagnostics, Some(snapshot.version))
+                    .await;
+            }
+        }
+        Ok(())
     }
+}
+
+fn link_diagnostics(uri: &Uri, doc: &Document, resolver: &mut Resolver) -> Vec<Diagnostic> {
+    let mut diagnostics: Vec<_> = doc
+        .diagnostics
+        .iter()
+        .map(|d| Diagnostic {
+            range: range(doc, d.range.clone()),
+            severity: Some(match d.severity {
+                Severity::Error => DiagnosticSeverity::ERROR,
+                Severity::Warning => DiagnosticSeverity::WARNING,
+            }),
+            source: Some("djotls".into()),
+            message: d.message.clone(),
+            ..Default::default()
+        })
+        .collect();
+    for link in &doc.links {
+        // Direct local anchors already have precise unresolved-reference
+        // diagnostics from the document analyzer. Reference-style destinations
+        // still need validation against their resolved file/anchor.
+        let reference = doc.references.iter().find(|r| r.full_range == link.range);
+        if reference.is_some_and(|r| r.kind == DjotSymbolKind::Anchor) {
+            continue;
+        }
+        let resolution = resolver.resolve(uri.as_str(), &link.destination);
+        let mut bytes = link.destination_range.clone();
+        let source = &doc.source[bytes.clone()];
+        let fragment = reference.is_none().then(|| source.find('#')).flatten();
+        let path_end = reference
+            .is_none()
+            .then(|| source.find(['#', '?']))
+            .flatten();
+        let (severity, message) = match resolution {
+            Resolution::MissingFile(path) => {
+                if let Some(end) = path_end {
+                    bytes.end = bytes.start + end;
+                }
+                (
+                    DiagnosticSeverity::ERROR,
+                    format!("Link target does not exist: {}", path.display()),
+                )
+            }
+            Resolution::MissingAnchor(anchor) => {
+                if let Some(fragment) = fragment {
+                    bytes.start += fragment + 1;
+                }
+                (
+                    DiagnosticSeverity::ERROR,
+                    format!("Anchor not found: {anchor}"),
+                )
+            }
+            Resolution::Unavailable(message) => (DiagnosticSeverity::WARNING, message),
+            Resolution::Target { .. } | Resolution::External => continue,
+        };
+        diagnostics.push(Diagnostic {
+            range: range(doc, bytes),
+            severity: Some(severity),
+            source: Some("djotls".into()),
+            message,
+            ..Default::default()
+        });
+    }
+    diagnostics
 }
 
 fn position(doc: &Document, offset: usize) -> Position {
@@ -216,8 +315,13 @@ impl LanguageServer for Backend {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 position_encoding: Some(PositionEncodingKind::UTF16),
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::INCREMENTAL,
+                text_document_sync: Some(TextDocumentSyncCapability::Options(
+                    TextDocumentSyncOptions {
+                        open_close: Some(true),
+                        change: Some(TextDocumentSyncKind::INCREMENTAL),
+                        save: Some(TextDocumentSyncSaveOptions::Supported(true)),
+                        ..Default::default()
+                    },
                 )),
                 document_formatting_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
@@ -260,7 +364,9 @@ impl LanguageServer for Backend {
             let registration = Registration {
                 id: "djotls-workspace-files".into(),
                 method: "workspace/didChangeWatchedFiles".into(),
-                register_options: Some(serde_json::json!({"watchers":[{"globPattern":"**/*.dj"}]})),
+                register_options: Some(
+                    serde_json::json!({"watchers":[{"globPattern":"**/*.dj"},{"globPattern":"**/*","kind":5}]}),
+                ),
             };
             if let Err(error) = self.client.register_capability(vec![registration]).await {
                 self.client
@@ -287,12 +393,16 @@ impl LanguageServer for Backend {
                 }
             }
         }
-        let _ = Self::refresh_workspace(&mut workspace).await;
+        drop(workspace);
+        let _ = self.refresh_diagnostics().await;
     }
 
     async fn did_change_watched_files(&self, _: DidChangeWatchedFilesParams) {
-        let mut workspace = self.workspace.lock().await;
-        let _ = Self::refresh_workspace(&mut workspace).await;
+        let _ = self.refresh_diagnostics().await;
+    }
+
+    async fn did_save(&self, _: DidSaveTextDocumentParams) {
+        let _ = self.refresh_diagnostics().await;
     }
 
     async fn symbol(
@@ -385,13 +495,13 @@ impl LanguageServer for Backend {
             .write()
             .unwrap()
             .insert(item.uri.clone(), snapshot.clone());
-        self.publish(item.uri, snapshot).await;
+        let _ = self.refresh_diagnostics().await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         // Update synchronously before the first await. Requests snapshot the
         // resulting immutable document; no lock is held across protocol I/O.
-        let snapshot = {
+        {
             let mut docs = self.documents.write().unwrap();
             let Some(old) = docs.get(&params.text_document.uri) else {
                 return;
@@ -424,10 +534,9 @@ impl LanguageServer for Backend {
                 version: params.text_document.version,
                 doc: Arc::new(Document::new(source)),
             });
-            docs.insert(params.text_document.uri.clone(), snapshot.clone());
-            snapshot
-        };
-        self.publish(params.text_document.uri, snapshot).await;
+            docs.insert(params.text_document.uri.clone(), snapshot);
+        }
+        let _ = self.refresh_diagnostics().await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -435,9 +544,13 @@ impl LanguageServer for Backend {
             .write()
             .unwrap()
             .remove(&params.text_document.uri);
-        self.client
-            .publish_diagnostics(params.text_document.uri, vec![], None)
-            .await;
+        {
+            let _guard = self.diagnostics.lock().await;
+            self.client
+                .publish_diagnostics(params.text_document.uri, vec![], None)
+                .await;
+        }
+        let _ = self.refresh_diagnostics().await;
     }
 
     async fn goto_definition(
@@ -447,12 +560,53 @@ impl LanguageServer for Backend {
         let p = params.text_document_position_params;
         let snapshot = self.snapshot(&p.text_document.uri)?;
         let doc = &snapshot.doc;
-        let Some(target) = doc.target_at(offset(doc, p.position)?) else {
+        let at = offset(doc, p.position)?;
+        // Labels, footnotes and same-document anchor references keep their
+        // precise local targets. Do not let a surrounding heading's broad name
+        // range hide a link inside that heading.
+        if let Some(reference) = doc.references.iter().find(|r| r.name_range.contains(&at)) {
+            return Ok(reference.target.map(|target| {
+                GotoDefinitionResponse::Scalar(Location::new(
+                    p.text_document.uri.clone(),
+                    range(doc, doc.definitions[target].name_range.clone()),
+                ))
+            }));
+        }
+        let Some(link) = doc.links.iter().find(|link| link.range.contains(&at)) else {
+            return Ok(doc.target_at(at).map(|target| {
+                GotoDefinitionResponse::Scalar(Location::new(
+                    p.text_document.uri.clone(),
+                    range(doc, doc.definitions[target].name_range.clone()),
+                ))
+            }));
+        };
+        let destination = link.destination.clone();
+        let (_, mut documents) = self.workspace_documents().await?;
+        documents.insert(p.text_document.uri.clone(), snapshot.doc.clone());
+        let base = p.text_document.uri.as_str().to_owned();
+        let resolution = tokio::task::spawn_blocking(move || {
+            Resolver::new(
+                documents
+                    .into_iter()
+                    .map(|(uri, doc)| (uri.as_str().to_owned(), doc)),
+            )
+            .resolve(&base, &destination)
+        })
+        .await
+        .map_err(|_| Error::internal_error())?;
+        let Resolution::Target {
+            uri,
+            document,
+            selection,
+        } = resolution
+        else {
             return Ok(None);
         };
+        let uri = uri.as_str().parse().map_err(|_| Error::internal_error())?;
+        let target_range = document.map_or_else(Range::default, |doc| range(&doc, selection));
         Ok(Some(GotoDefinitionResponse::Scalar(Location::new(
-            p.text_document.uri,
-            range(doc, doc.definitions[target].name_range.clone()),
+            uri,
+            target_range,
         ))))
     }
 
