@@ -163,8 +163,25 @@ The server supports:
   Reference-link destinations are updated at the definition. New heading names
   are literal text; inline punctuation is escaped, replacing the old heading’s
   inline formatting. Renames that would remove an embedded ID, create a
-  duplicate anchor or retarget an implicit heading reference are rejected. File
-  paths, ordinary reference labels and footnotes cannot be renamed yet.
+  duplicate anchor or retarget an implicit heading reference are rejected.
+  Ordinary reference labels and footnotes cannot be renamed yet.
+
+- File and folder moves through `workspace/willRenameFiles` and
+  `workspace/didRenameFiles`. Incoming links follow moved targets, and relative
+  outgoing links in moved `.dj` files keep their original targets. Batch moves
+  resolve each link against the original locations. Internal links within a
+  moved folder keep their spelling when they still resolve correctly. Images and
+  reference-definition destinations are included; external URLs, query strings,
+  fragments and link text are preserved.
+
+  You can also invoke rename on the path in a local link destination, including
+  an image or reference definition. The new name is a path relative to the
+  document containing that link, or an absolute file URI. The server returns
+  text edits at the original URIs followed by a `RenameFile` operation. This
+  requires client support for `documentChanges` and the `rename` resource
+  operation. The source must exist, the new parent directory must exist, and
+  existing destinations are not overwritten. Heading and ID rename remain
+  available on fragments.
 
 - Completion for link labels after `[text][`, footnotes after `[^`, and anchors
   after `[text](#`.
@@ -250,8 +267,22 @@ Clients supporting `documentChanges` receive versioned edits for open buffers;
 other clients receive `changes`. If open buffers change during rename planning,
 the request fails with `ContentModified` so the client can retry.
 
-Find references remains document-local. File moves are not yet supported. An
-incomplete delimiter alone is not reported as a syntax error.
+File-move planning uses the same index and open-buffer snapshots. An explicitly
+moved `.dj` file outside the index is read on demand to update outgoing links;
+unindexed, unopened descendants of moved folders are not traversed. Overlapping
+source moves and document destination collisions are rejected. A
+`didRenameFiles` notification migrates open buffers to the new URIs, clears old
+diagnostics, relocates moved workspace folders and refreshes diagnostics. A
+buffer already opened at the destination takes precedence over a migrated
+snapshot. Index overlays treat equivalent encoded file URIs as the same file.
+
+The client’s file manager must send `willRenameFiles`, apply the returned edits,
+perform the move and send `didRenameFiles` (when advertised). A terminal `mv` or
+file-watch notification alone cannot repair links automatically. The server uses
+the standard file-operation callbacks in `tower-lsp-server`.
+
+Find references remains document-local. An incomplete delimiter alone is not
+reported as a syntax error.
 
 Each document version is analyzed in full. Its snapshot retains source, parser
 events, headings, definitions, references and document links. Context is
@@ -283,9 +314,12 @@ out-of-index targets, disk changes and read failures. Rename stdio tests apply
 the returned workspace edits and cover generated anchor renumbering, explicit
 IDs, implicit title references, unchanged link text inside other headings,
 unsaved buffers, versioned edits, URI encoding, duplicate definitions,
-conflicting names and rejected positions. Parser conformance needs the pinned
-djot.js submodule and Node.js; its harness builds the reference when needed. The
-Rust server has no JavaScript runtime dependency.
+conflicting names and rejected positions. File-move stdio tests cover incoming
+and outgoing links, folder and batch moves, assets, resource-operation ordering,
+unsaved buffer migration, workspace folder relocation, encoded URI equivalence,
+ignored targets and invalid moves. Parser conformance needs the pinned djot.js
+submodule and Node.js; its harness builds the reference when needed. The Rust
+server has no JavaScript runtime dependency.
 
 </div>
 
