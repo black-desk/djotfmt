@@ -37,6 +37,7 @@ vim.lsp.config('djot', {
     end
     map('gd', vim.lsp.buf.definition, 'Djot: go to definition')
     map('<leader>lr', vim.lsp.buf.references, 'Djot: references')
+    map('<leader>ln', vim.lsp.buf.rename, 'Djot: rename heading or ID')
     map('<leader>ls', vim.lsp.buf.document_symbol, 'Djot: heading outline')
     map('<leader>lf', function()
       vim.lsp.buf.format({ bufnr = bufnr, name = 'djot', async = false })
@@ -143,6 +144,25 @@ The server supports:
   files need not be open or included in the workspace index. Links without
   a fragment (or with an empty fragment) navigate to the start of the file.
 
+- Heading and explicit-ID rename through `textDocument/prepareRename` and
+  `textDocument/rename`. Renaming a heading without an explicit ID updates
+  its generated anchor and workspace links. If other generated anchors are
+  renumbered, their links keep pointing to the same headings. Renaming a
+  heading with an explicit ID preserves that ID and its fragment links;
+  title-based references still follow the new title. Renaming an explicit
+  ID updates its links without changing the heading text. A fragment or
+  implicit title reference can also initiate the rename; generated fragments
+  rename the owning heading, while explicit fragments rename the ID.
+
+  Link paths, query strings and visible link text are preserved. For example,
+  `[Old][]` becomes `[Old][New]` when its heading is renamed to `New`.
+  Reference-link destinations are updated at the definition. New heading
+  names are literal text; inline punctuation is escaped, replacing the old
+  heading's inline formatting. Renames that would remove an embedded ID,
+  create a duplicate anchor or retarget an implicit heading reference are
+  rejected. File paths, ordinary reference labels and footnotes cannot be
+  renamed yet.
+
 - Completion for link labels after `[text][`, footnotes after `[^`, and
   anchors after `[text](#`.
 
@@ -217,8 +237,17 @@ currently checks all open documents rather than maintaining an incremental
 reverse dependency index. File reads and workspace link validation run on
 blocking workers.
 
-Find references remains document-local. Rename and file moves are not yet
-supported. An incomplete delimiter alone is not reported as a syntax error.
+Rename searches indexed workspace documents and all open buffers, including
+unsaved files. A linked target outside the index can be renamed on demand;
+incoming links in other unindexed, unopened files are not discovered. The
+server returns a workspace edit for the client to apply and never writes
+files itself. Clients supporting `documentChanges` receive versioned edits
+for open buffers; other clients receive `changes`. If open buffers change
+during rename planning, the request fails with `ContentModified` so the
+client can retry.
+
+Find references remains document-local. File moves are not yet supported.
+An incomplete delimiter alone is not reported as a syntax error.
 
 Each document version is analyzed in full. Its snapshot retains source,
 parser events, headings, definitions, references and document links. Context is calculated
@@ -244,6 +273,10 @@ precedence, disk changes, workspace-folder changes, destination completion
 ordering, relative links and URI encoding. Further stdio tests cover cross-file
 navigation, exact error ranges, reference-label precedence, links inside
 headings, unsaved and out-of-index targets, disk changes and read failures.
+Rename stdio tests apply the returned workspace edits and cover generated
+anchor renumbering, explicit IDs, implicit title references, unchanged link
+text inside other headings, unsaved buffers, versioned edits, URI encoding,
+duplicate definitions, conflicting names and rejected positions.
 Parser conformance needs
 the pinned djot.js submodule and Node.js; its harness builds the reference when
 needed.

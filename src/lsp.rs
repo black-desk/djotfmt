@@ -5,6 +5,7 @@
 use djotls::{
     analysis::{
         links::{Resolution, Resolver},
+        rename::Rename,
         text::LineIndex,
         CompletionKind, Document, Severity, SymbolKind as DjotSymbolKind,
     },
@@ -38,6 +39,7 @@ pub struct Backend {
     watch_files: AtomicBool,
     snippets: AtomicBool,
     nested_symbols: AtomicBool,
+    versioned_edits: AtomicBool,
 }
 
 impl Backend {
@@ -50,6 +52,7 @@ impl Backend {
             watch_files: AtomicBool::new(false),
             snippets: AtomicBool::new(false),
             nested_symbols: AtomicBool::new(false),
+            versioned_edits: AtomicBool::new(false),
         }
     }
 
@@ -74,10 +77,20 @@ impl Backend {
     async fn workspace_documents(
         &self,
     ) -> Result<(Vec<std::path::PathBuf>, HashMap<Uri, Arc<Document>>)> {
+        let (roots, mut documents) = self.workspace_disk_documents().await?;
+        for (uri, snapshot) in self.documents.read().unwrap().iter() {
+            documents.insert(uri.clone(), snapshot.doc.clone());
+        }
+        Ok((roots, documents))
+    }
+
+    async fn workspace_disk_documents(
+        &self,
+    ) -> Result<(Vec<std::path::PathBuf>, HashMap<Uri, Arc<Document>>)> {
         let mut workspace = self.workspace.lock().await;
         // Refresh on demand for clients without watchers and changes to Git rules.
         Self::refresh_workspace(&mut workspace).await?;
-        let mut documents: HashMap<Uri, Arc<Document>> = workspace
+        let documents: HashMap<Uri, Arc<Document>> = workspace
             .documents
             .iter()
             .filter_map(|(path, doc)| {
@@ -86,10 +99,6 @@ impl Backend {
             })
             .collect();
         let roots = workspace.roots.clone();
-        drop(workspace);
-        for (uri, snapshot) in self.documents.read().unwrap().iter() {
-            documents.insert(uri.clone(), snapshot.doc.clone());
-        }
         Ok((roots, documents))
     }
 
@@ -136,6 +145,35 @@ impl Backend {
                     .publish_diagnostics(uri, diagnostics, Some(snapshot.version))
                     .await;
             }
+        }
+        Ok(())
+    }
+
+    async fn rename_context(&self) -> Result<(Rename, HashMap<Uri, Arc<Snapshot>>)> {
+        let (_, mut documents) = self.workspace_disk_documents().await?;
+        let open = self.documents.read().unwrap().clone();
+        for (uri, snapshot) in &open {
+            documents.insert(uri.clone(), snapshot.doc.clone());
+        }
+        Ok((
+            Rename::new(
+                documents
+                    .into_iter()
+                    .map(|(uri, doc)| (uri.as_str().to_string(), doc))
+                    .collect(),
+            ),
+            open,
+        ))
+    }
+
+    fn check_rename_snapshots(&self, open: &HashMap<Uri, Arc<Snapshot>>) -> Result<()> {
+        let current = self.documents.read().unwrap();
+        if current.len() != open.len()
+            || open
+                .iter()
+                .any(|(uri, doc)| !current.get(uri).is_some_and(|now| Arc::ptr_eq(now, doc)))
+        {
+            return Err(Error::content_modified());
         }
         Ok(())
     }
@@ -299,6 +337,16 @@ impl LanguageServer for Backend {
             Self::refresh_workspace(&mut workspace).await?;
         }
         let text = params.capabilities.text_document.as_ref();
+        self.versioned_edits.store(
+            params
+                .capabilities
+                .workspace
+                .as_ref()
+                .and_then(|w| w.workspace_edit.as_ref())
+                .and_then(|e| e.document_changes)
+                .unwrap_or(false),
+            Ordering::Relaxed,
+        );
         self.snippets.store(
             text.and_then(|t| t.completion.as_ref())
                 .and_then(|c| c.completion_item.as_ref())
@@ -339,6 +387,10 @@ impl LanguageServer for Backend {
                 }),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
                 completion_provider: Some(CompletionOptions {
                     trigger_characters: Some(vec![
                         "[".into(),
@@ -608,6 +660,85 @@ impl LanguageServer for Backend {
             uri,
             target_range,
         ))))
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let (mut rename, open) = self.rename_context().await?;
+        let source = open
+            .get(&params.text_document.uri)
+            .ok_or_else(|| Error::invalid_params("Document is not open"))?;
+        let at = offset(&source.doc, params.position)?;
+        let uri = params.text_document.uri.as_str().to_string();
+        let target = tokio::task::spawn_blocking(move || rename.target(&uri, at))
+            .await
+            .map_err(|_| Error::internal_error())?;
+        self.check_rename_snapshots(&open)?;
+        Ok(
+            target.map(|target| PrepareRenameResponse::RangeWithPlaceholder {
+                range: range(&source.doc, target.selection),
+                placeholder: target.placeholder,
+            }),
+        )
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let (mut rename, open) = self.rename_context().await?;
+        let p = params.text_document_position;
+        let source = open
+            .get(&p.text_document.uri)
+            .ok_or_else(|| Error::invalid_params("Document is not open"))?;
+        let at = offset(&source.doc, p.position)?;
+        let uri = p.text_document.uri.as_str().to_string();
+        let edits = tokio::task::spawn_blocking(move || {
+            let target = rename
+                .target(&uri, at)
+                .ok_or_else(|| "No heading or explicit ID at this position".to_string())?;
+            rename.plan(target, &params.new_name)
+        })
+        .await
+        .map_err(|_| Error::internal_error())?
+        .map_err(Error::invalid_params)?;
+        self.check_rename_snapshots(&open)?;
+        let mut files: Vec<_> = edits.into_iter().collect();
+        files.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut changes = HashMap::new();
+        let mut document_changes = Vec::new();
+        for (uri, file) in files {
+            let uri: Uri = uri.parse().map_err(|_| Error::internal_error())?;
+            let edits: Vec<_> = file
+                .edits
+                .into_iter()
+                .map(|edit| TextEdit {
+                    range: range(&file.document, edit.range),
+                    new_text: edit.text,
+                })
+                .collect();
+            if self.versioned_edits.load(Ordering::Relaxed) {
+                document_changes.push(TextDocumentEdit {
+                    text_document: OptionalVersionedTextDocumentIdentifier {
+                        version: open.get(&uri).map(|s| s.version),
+                        uri,
+                    },
+                    edits: edits.into_iter().map(OneOf::Left).collect(),
+                });
+            } else {
+                changes.insert(uri, edits);
+            }
+        }
+        Ok(Some(if self.versioned_edits.load(Ordering::Relaxed) {
+            WorkspaceEdit {
+                document_changes: Some(DocumentChanges::Edits(document_changes)),
+                ..Default::default()
+            }
+        } else {
+            WorkspaceEdit {
+                changes: Some(changes),
+                ..Default::default()
+            }
+        }))
     }
 
     async fn document_link(&self, params: DocumentLinkParams) -> Result<Option<Vec<DocumentLink>>> {
